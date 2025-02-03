@@ -43,6 +43,7 @@ import (
 	"github.com/ethereum/go-ethereum/miner"
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/p2p"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/gorilla/websocket"
 )
@@ -70,6 +71,8 @@ type backend interface {
 	GetTd(ctx context.Context, hash common.Hash) *big.Int
 	Stats() (pending int, queued int)
 	SyncProgress() ethereum.SyncProgress
+	// ADDED by Jakub Pajek (ethstats votes count)
+	ChainConfig() *params.ChainConfig
 }
 
 // fullNodeBackend encompasses the functionality necessary for a full node
@@ -585,6 +588,8 @@ type blockStats struct {
 	TxHash     common.Hash    `json:"transactionsRoot"`
 	Root       common.Hash    `json:"stateRoot"`
 	Uncles     uncleStats     `json:"uncles"`
+	// ADDED by Jakub Pajek (ethstats votes count)
+	Votes voteStats `json:"votes"`
 }
 
 // txStats is the information to report about individual transactions.
@@ -602,6 +607,55 @@ func (s uncleStats) MarshalJSON() ([]byte, error) {
 	}
 	return []byte("[]"), nil
 }
+
+// ADDED by Jakub Pajek BEG (ethstats votes count)
+
+type vote struct {
+	Address  common.Address `json:"address"`
+	Proposal string         `json:"proposal"`
+}
+
+// voteStats is a custom wrapper around an vote array to force serializing
+// empty arrays instead of returning null for them.
+type voteStats []vote
+
+func (s voteStats) MarshalJSON() ([]byte, error) {
+	if votes := ([]vote)(s); len(votes) > 0 {
+		return json.Marshal(votes)
+	}
+	return []byte("[]"), nil
+}
+
+// isTTDReached checks if the TotalTerminalDifficulty has been surpassed on the `parentHash` block.
+// It depends on the parentHash already being stored in the database.
+// If the parentHash is not stored in the database a UnknownAncestor error is returned.
+func (s *Service) isTTDReached(parentHash common.Hash) (bool, error) {
+	ttd := s.backend.ChainConfig().TerminalTotalDifficulty
+	if ttd == nil {
+		return false, nil
+	}
+	td := s.backend.GetTd(context.Background(), parentHash)
+	if td == nil {
+		return false, consensus.ErrUnknownAncestor
+	}
+	return td.Cmp(ttd) >= 0, nil
+}
+
+// poaEngine returns the PoA consensus engine, or nil if PoW or PoS is being used.
+func (s *Service) poaEngine(header *types.Header) consensus.PoA {
+	if pos, ok := s.engine.(consensus.PoS); ok {
+		if poa, ok := pos.EthOneEngine().(consensus.PoA); ok {
+			if reached, err := s.isTTDReached(header.ParentHash); err == nil && !reached {
+				return poa
+			}
+		}
+	} else if poa, ok := s.engine.(consensus.PoA); ok {
+		return poa
+	}
+	return nil
+}
+
+// ADDED by Jakub Pajek END (ethstats votes count)
 
 // reportBlock retrieves the current chain head and reports it to the stats server.
 func (s *Service) reportBlock(conn *connWrapper, block *types.Block) error {
@@ -630,6 +684,8 @@ func (s *Service) assembleBlockStats(block *types.Block) *blockStats {
 		td     *big.Int
 		txs    []txStats
 		uncles []*types.Header
+		// ADDED by Jakub Pajek (ethstats votes count)
+		votes []vote
 	)
 
 	// check if backend is a full node
@@ -667,6 +723,45 @@ func (s *Service) assembleBlockStats(block *types.Block) *blockStats {
 		txs = []txStats{}
 	}
 
+	// ADDED by Jakub Pajek BEG (ethstats votes count)
+	if poa, cliqueCfg := s.poaEngine(header), s.backend.ChainConfig().Clique; poa != nil && cliqueCfg != nil {
+		// MEMO by Jakub Pajek (clique config: variable period)
+		// How to handle variable epoch changing with the number of sealers?
+		cliqueEpoch := cliqueCfg[0].Epoch
+		if cliqueEpoch == 0 {
+			cliqueEpoch = params.CliqueEpoch
+		}
+		if checkpoint, extraBytes := header.Number.Uint64()%cliqueEpoch == 0, len(header.Extra)-params.CliqueExtraVanity-params.CliqueExtraSeal; !checkpoint && extraBytes > 0 {
+			voteCount := extraBytes / (common.AddressLength + 1)
+			votes = make([]vote, voteCount)
+			for voteIdx := 0; voteIdx < voteCount; voteIdx++ {
+				// Get the address of the vote
+				index := params.CliqueExtraVanity + voteIdx*(common.AddressLength+1)
+				var address common.Address
+				copy(address[:], header.Extra[index:])
+				// Get the proposal of the vote
+				index += common.AddressLength
+				var proposal string
+				switch header.Extra[index] {
+				case params.CliqueExtraVoterVote:
+					proposal = "voter"
+				case params.CliqueExtraSignerVote:
+					proposal = "signer"
+				case params.CliqueExtraDropVote:
+					proposal = "drop"
+				default:
+					proposal = "unknown"
+				}
+				// Add the vote
+				votes[voteIdx] = vote{
+					Address:  address,
+					Proposal: proposal,
+				}
+			}
+		}
+	}
+	// ADDED by Jakub Pajek END (ethstats votes count)
+
 	// Assemble and return the block stats
 	author, _ := s.engine.Author(header)
 
@@ -684,6 +779,8 @@ func (s *Service) assembleBlockStats(block *types.Block) *blockStats {
 		TxHash:     header.TxHash,
 		Root:       header.Root,
 		Uncles:     uncles,
+		// ADDED by Jakub Pajek (ethstats votes count)
+		Votes: votes,
 	}
 }
 
