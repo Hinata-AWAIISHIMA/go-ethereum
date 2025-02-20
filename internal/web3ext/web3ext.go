@@ -95,12 +95,13 @@ web3._extend({
 			name: 'isSigner',
 			call: 'clique_isSigner',
 			params: 2,
-			inputFormatter: [null, web3._extend.formatters.inputBlockNumberFormatter]
+			inputFormatter: [web3._extend.formatters.inputAddressFormatter, web3._extend.formatters.inputBlockNumberFormatter]
 		}),
 		new web3._extend.Method({
 			name: 'isSignerAtHash',
 			call: 'clique_isSignerAtHash',
-			params: 2
+			params: 2,
+			inputFormatter: [web3._extend.formatters.inputAddressFormatter, null]
 		}),
 		new web3._extend.Method({
 			name: 'getVoters',
@@ -128,12 +129,13 @@ web3._extend({
 			name: 'isVoter',
 			call: 'clique_isVoter',
 			params: 2,
-			inputFormatter: [null, web3._extend.formatters.inputBlockNumberFormatter]
+			inputFormatter: [web3._extend.formatters.inputAddressFormatter, web3._extend.formatters.inputBlockNumberFormatter]
 		}),
 		new web3._extend.Method({
 			name: 'isVoterAtHash',
 			call: 'clique_isVoterAtHash',
-			params: 2
+			params: 2,
+			inputFormatter: [web3._extend.formatters.inputAddressFormatter, null]
 		}),
 		new web3._extend.Method({
 			name: 'getValidProposals',
@@ -149,12 +151,14 @@ web3._extend({
 		new web3._extend.Method({
 			name: 'propose',
 			call: 'clique_propose',
-			params: 2
+			params: 2,
+			inputFormatter: [web3._extend.formatters.inputAddressFormatter, null]
 		}),
 		new web3._extend.Method({
 			name: 'discard',
 			call: 'clique_discard',
-			params: 1
+			params: 1,
+			inputFormatter: [web3._extend.formatters.inputAddressFormatter]
 		}),
 		new web3._extend.Method({
 			name: 'status',
