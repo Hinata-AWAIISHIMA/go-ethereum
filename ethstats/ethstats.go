@@ -661,6 +661,11 @@ func (s *Service) poaEngine(header *types.Header) consensus.PoA {
 func (s *Service) reportBlock(conn *connWrapper, block *types.Block) error {
 	// Gather the block details from the header or block chain
 	details := s.assembleBlockStats(block)
+	// ADDED by Jakub Pajek (ethstats txcount bugfix)
+	// Short circuit if the block detail is not available.
+	if details == nil {
+		return errors.New("block stats assembly failed")
+	}
 
 	// Assemble the block report and send it to the server
 	log.Trace("Sending new block to ethstats", "number", details.Number, "hash", details.Hash)
@@ -699,7 +704,12 @@ func (s *Service) assembleBlockStats(block *types.Block) *blockStats {
 		*/
 		if block == nil {
 			head := fullBackend.CurrentBlock()
-			block, _ = fullBackend.BlockByNumber(context.Background(), rpc.BlockNumber(head.Number.Uint64())) // TODO ignore error here ?
+			block, _ = fullBackend.BlockByNumber(context.Background(), rpc.BlockNumber(head.Number.Uint64()))
+		}
+		// Short circuit if no block is available. It might happen when
+		// the blockchain is reorging.
+		if block == nil {
+			return nil
 		}
 		// MODIFIED by Jakub Pajek END (ethstats txcount bugfix)
 		header = block.Header()
@@ -816,8 +826,12 @@ func (s *Service) reportHistory(conn *connWrapper, list []uint64) error {
 		}
 		// If we do have the block, add to the history and continue
 		if block != nil {
-			history[len(history)-1-i] = s.assembleBlockStats(block)
-			continue
+			// MODIFIED by Jakub Pajek (ethstats txcount bugfix)
+			//history[len(history)-1-i] = s.assembleBlockStats(block)
+			if details := s.assembleBlockStats(block); details != nil {
+				history[len(history)-1-i] = details
+				continue
+			}
 		}
 		// Ran out of blocks, cut the report short and send
 		history = history[len(history)-i:]
