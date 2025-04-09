@@ -1145,6 +1145,10 @@ func (c *Clique) Prepare(chain consensus.ChainHeaderReader, header *types.Header
 				(currConfig.Period > 0 && header.Time >= parent.Time+(currConfig.MinStallPeriod*currConfig.Period)) {
 				// Set the correct difficulty for the voter ring
 				header.Difficulty = snap.calcVoterRingDifficulty(signer)
+				// TODO JAKUB TEST
+				if currConfig.Period > 0 && header.Time >= parent.Time+(currConfig.MinStallPeriod*currConfig.Period) {
+					log.Warn("JAKUB Prepare switch to voter ring", "number", header.Number)
+				}
 			} else {
 				// Set the correct difficulty for the sealer ring
 				header.Difficulty = snap.calcSealerRingDifficulty(signer)
@@ -1329,6 +1333,7 @@ func (c *Clique) Seal(chain consensus.ChainHeaderReader, block *types.Block, res
 		delayFactor          *big.Int
 		sealersCount         int
 		sealersPerWiggleSlot int
+		sealSwitchVoterRing  bool
 	)
 	if signed, ok := snap.Signers[signer]; !ok {
 		return errUnauthorizedSigner
@@ -1353,22 +1358,26 @@ func (c *Clique) Seal(chain consensus.ChainHeaderReader, block *types.Block, res
 				// Since, unlike mobile signers, voters are most likely to always be online,
 				// they will sign in-turn most of the time while trying to switch to the voter ring.
 				if headerHasVotes := number%currConfig.Epoch != 0 && len(header.Extra)-params.CliqueExtraVanity-params.CliqueExtraSeal > 0; !headerHasVotes {
-					// Add a constant delay offset equal to 10% of the current block period in order to delay all non-voting
-					// voters trying to switch to the voter ring because of a network stall. This will result in their blocks
-					// being broadcast with a delay and will allow some of the in-turnish online signers to broadcast
-					// their blocks faster, which in consequence will allow to prevent switching to the voter ring.
-					// (Period is always greater than zero here, because 0-period chains switch to the voter ring only when voting)
-					delayOffset = time.Duration(currConfig.Period) * time.Second * time.Duration(10) / time.Duration(100)
-					// Decrease the constant delay offset by the additional delay already passed since the last block
-					parent := chain.GetHeader(header.ParentHash, number-1)
-					if parent == nil {
-						return consensus.ErrUnknownAncestor
-					}
-					passedDelay := time.Duration(header.Time-(parent.Time+(currConfig.MinStallPeriod*currConfig.Period))) * time.Second
-					delayOffset -= passedDelay
-					if delayOffset < 0 {
-						delayOffset = 0
-					}
+					/*
+						// Add a constant delay offset equal to 10% of the current block period in order to delay all non-voting
+						// voters trying to switch to the voter ring because of a network stall. This will result in their blocks
+						// being broadcast with a delay and will allow some of the in-turnish online signers to broadcast
+						// their blocks faster, which in consequence will allow to prevent switching to the voter ring.
+						// (Period is always greater than zero here, because 0-period chains switch to the voter ring only when voting)
+						delayOffset = time.Duration(currConfig.Period) * time.Second * time.Duration(10) / time.Duration(100)
+						// Decrease the constant delay offset by the additional delay already passed since the last block
+						parent := chain.GetHeader(header.ParentHash, number-1)
+						if parent == nil {
+							return consensus.ErrUnknownAncestor
+						}
+						passedDelay := time.Duration(header.Time-(parent.Time+(currConfig.MinStallPeriod*currConfig.Period))) * time.Second
+						delayOffset -= passedDelay
+						if delayOffset < 0 {
+							delayOffset = 0
+						}
+					*/
+					log.Warn("JAKUB Seal switch to voter ring", "number", header.Number)
+					sealSwitchVoterRing = true
 				}
 				delayFactor = new(big.Int).Sub(inturnDiff, header.Difficulty)
 				sealersCount = len(snap.Voters)
@@ -1508,19 +1517,29 @@ func (c *Clique) Seal(chain consensus.ChainHeaderReader, block *types.Block, res
 	copy(header.Extra[len(header.Extra)-params.CliqueExtraSeal:], sighash)
 	// Wait until sealing is terminated or delay timeout.
 	log.Trace("Waiting for slot to sign and propagate", "delay", common.PrettyDuration(delay))
-	go func() {
+	go func(sealSwitchVoterRing bool) {
 		select {
 		case <-stop:
+			if sealSwitchVoterRing {
+				log.Warn("JAKUB Seal switch to voter ring STOP", "number", header.Number, "sealhash", SealHash(header))
+			}
 			return
 		case <-time.After(delay):
+		}
+
+		if sealSwitchVoterRing {
+			log.Warn("JAKUB Seal switch to voter ring SEND", "number", header.Number, "sealhash", SealHash(header))
 		}
 
 		select {
 		case results <- block.WithSeal(header):
 		default:
 			log.Warn("Sealing result is not read by miner", "sealhash", SealHash(header))
+			if sealSwitchVoterRing {
+				log.Warn("JAKUB Seal switch to voter ring NOT READ", "number", header.Number, "sealhash", SealHash(header))
+			}
 		}
-	}()
+	}(sealSwitchVoterRing)
 
 	return nil
 }
