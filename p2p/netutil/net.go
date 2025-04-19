@@ -66,7 +66,8 @@ func init() {
 	special6.Add("2002::/16")
 
 	// ADDED by Jakub Pajek (mobile connectivity)
-	mobileLan4.Add("10.0.0.0/8") // Private Use
+	mobileLan4.Add("10.0.0.0/8")  // Private Use
+	mobileLan4.Add("100.0.0.0/8") // Shared Address Space for CGN
 
 	// ADDED by Jakub Pajek (mobile connectivity)
 	// mobileLan6 left blank for now
