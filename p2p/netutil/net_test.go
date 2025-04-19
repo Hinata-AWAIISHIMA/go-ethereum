@@ -102,6 +102,8 @@ func TestIsMobileLAN(t *testing.T) {
 		[]string{ // included
 			"10.0.1.1",
 			"10.22.0.3",
+			"100.0.1.1",
+			"100.22.0.3",
 		},
 		[]string{ // excluded
 			"0.0.0.0",
@@ -182,6 +184,7 @@ func TestCheckRelayIP(t *testing.T) {
 		{"23.55.1.242", "23.55.1.242", nil},
 		// ADDED by Jakub Pajek (mobile connectivity)
 		{"23.55.1.242", "10.0.1.1", nil},
+		{"23.55.1.242", "100.0.1.1", nil},
 	}
 
 	for _, test := range tests {
