@@ -55,6 +55,13 @@ func (pi *PeerInfo) GetCaps() *Strings        { return &Strings{pi.info.Caps} }
 func (pi *PeerInfo) GetLocalAddress() string  { return pi.info.Network.LocalAddress }
 func (pi *PeerInfo) GetRemoteAddress() string { return pi.info.Network.RemoteAddress }
 
+// ADDED by Jakub Pajek BEG
+func (pi *PeerInfo) GetIsInbound() bool { return pi.info.Network.Inbound }
+func (pi *PeerInfo) GetIsTrusted() bool { return pi.info.Network.Trusted }
+func (pi *PeerInfo) GetIsStatic() bool  { return pi.info.Network.Static }
+
+// ADDED by Jakub Pajek END
+
 // PeerInfos represents a slice of infos about remote peers.
 type PeerInfos struct {
 	infos []*p2p.PeerInfo
