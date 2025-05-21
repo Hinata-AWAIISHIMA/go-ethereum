@@ -413,7 +413,13 @@ func (tab *Table) findnodeByID(target enode.ID, nresults int, preferLive bool) *
 	for _, b := range &tab.buckets {
 		for _, n := range b.entries {
 			nodes.push(n, nresults)
-			if preferLive && n.livenessChecks > 0 {
+			// MODIFIED by Jakub Pajek (mobile connectivity)
+			// WAN bootnodes can not correctly perform a liveness check of mobile nodes
+			// (Private addresses behind CGNAT are always unreachable from the Internet).
+			// Unless we explicitly allow unverified mobile nodes here, they will never
+			// be advertised.
+			//if preferLive && n.livenessChecks > 0 {
+			if preferLive && (n.livenessChecks > 0 || netutil.IsMobileLAN(n.IP())) {
 				liveNodes.push(n, nresults)
 			}
 		}

@@ -260,7 +260,11 @@ func TestUDPv4_findnode(t *testing.T) {
 	numCandidates := 2 * bucketSize
 	for i := 0; i < numCandidates; i++ {
 		key := newkey()
-		ip := net.IP{10, 13, 0, byte(i)}
+		// MODIFIED by Jakub Pajek (mobile connectivity)
+		// Do not use mobile LAN address space those nodes
+		// included in the result regardless of their liveness.
+		//ip := net.IP{10, 13, 0, byte(i)}
+		ip := net.IP{192, 168, 0, byte(i)}
 		n := wrapNode(enode.NewV4(&key.PublicKey, ip, 0, 2000))
 		// Ensure half of table content isn't verified live yet.
 		if i > numCandidates/2 {
