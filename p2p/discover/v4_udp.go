@@ -370,7 +370,10 @@ func (t *UDPv4) RequestENR(n *enode.Node) (*enode.Node, error) {
 		return n, nil // response record is older
 	}
 	if err := netutil.CheckRelayIP(addr.IP, respN.IP()); err != nil {
+		log.Error("JAKUB RequestENR:CheckRelayIP FAILED", "senderIP", addr.IP, "senderPort", addr.Port, "advertIP", respN.IP(), "advertUDP", respN.UDP(), "advertTCP", respN.TCP())
 		return nil, fmt.Errorf("invalid IP in response record: %v", err)
+	} else {
+		log.Error("JAKUB RequestENR:CheckRelayIP SUCCESS", "senderIP", addr.IP, "senderPort", addr.Port, "advertIP", respN.IP(), "advertUDP", respN.UDP(), "advertTCP", respN.TCP())
 	}
 	return respN, nil
 }
@@ -711,7 +714,10 @@ func (t *UDPv4) verifyFindnode(h *packetHandlerV4, from *net.UDPAddr, fromID eno
 		// and UDP port of the target as the source address. The recipient of the findnode
 		// packet would then send a neighbors packet (which is a much bigger packet than
 		// findnode) to the victim.
+		log.Error("JAKUB verifyFindnode:checkBond FAILED", "fromIP", from.IP, "fromPort", from.Port)
 		return errUnknownNode
+	} else {
+		log.Error("JAKUB verifyFindnode:checkBond SUCCESS", "fromIP", from.IP, "fromPort", from.Port)
 	}
 	return nil
 }
@@ -730,6 +736,7 @@ func (t *UDPv4) handleFindnode(h *packetHandlerV4, from *net.UDPAddr, fromID eno
 	for _, n := range closest {
 		if netutil.CheckRelayIP(from.IP, n.IP()) == nil {
 			p.Nodes = append(p.Nodes, nodeToRPC(n))
+			log.Error("JAKUB handleFindnode", "neighbourIP", n.IP(), "neighbourUDP", n.UDP(), "neighbourTCP", n.TCP())
 		}
 		if len(p.Nodes) == v4wire.MaxNeighbors {
 			t.send(from, fromID, &p)
@@ -765,7 +772,10 @@ func (t *UDPv4) verifyENRRequest(h *packetHandlerV4, from *net.UDPAddr, fromID e
 		return errExpired
 	}
 	if !t.checkBond(fromID, from.IP) {
+		log.Error("JAKUB verifyFindnode:checkBond FAILED", "fromIP", from.IP, "fromPort", from.Port)
 		return errUnknownNode
+	} else {
+		log.Error("JAKUB verifyFindnode:checkBond SUCCESS", "fromIP", from.IP, "fromPort", from.Port)
 	}
 	return nil
 }
