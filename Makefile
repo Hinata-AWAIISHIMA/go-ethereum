@@ -4,9 +4,17 @@
 
 .PHONY: geth android ios evm all test clean
 
+#ADDED by Hinata AWAIISHIMA BEG
+CC=gcc
+RUST_LIB_DIR=../el-stack-rs/target/release
+CFLAGS=-I../el-stack-rs/golang/el_stack
+LDFLAGS=$(RUST_LIB_DIR)/libel_stack.a -lm
+LD_LIBRARY_PATH=$(RUST_LIB_DIR)
+#ADDED by Hinata AWAIISHIMA END
+
 GOBIN = ./build/bin
 GO ?= latest
-GORUN = env GO111MODULE=on go run
+GORUN = env GO111MODULE=on CGO_CFLAGS="$(CFLAGS)" CGO_LDFLAGS="$(LDFLAGS)" go run
 
 geth:
 	$(GORUN) build/ci.go install ./cmd/geth
