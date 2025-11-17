@@ -77,7 +77,10 @@ func (g *GoToolchain) Install(gobin string, args ...string) *exec.Cmd {
 	// the install command.
 	pathTool := g.goTool("env", "GOPATH")
 	output, _ := pathTool.Output()
-	tool.Env = append(tool.Env, "GOPATH="+string(output))
+	// MODIFIED by Yuuki Endo (mobile make fails)
+	// Trim it because a newline character gets inserted at the end of the output.
+	//tool.Env = append(tool.Env, "GOPATH="+string(output))
+	tool.Env = append(tool.Env, "GOPATH="+strings.TrimSpace(string(output)))
 	return tool
 }
 
