@@ -1075,7 +1075,17 @@ func doAndroidArchive(cmdline []string) {
 	// MODIFIED by Jakub Pajek (mobile make android)
 	// Build arm64-v8a .so libraries only
 	//build.MustRun(gomobileTool("bind", "-ldflags", "-s -w", "--target", "android", "--javapkg", "org.ethereum", "-v", "github.com/ethereum/go-ethereum/mobile"))
-	build.MustRun(gomobileTool("bind", "-ldflags", "-s -w", "--target", "android/arm64", "--javapkg", "org.ethereum", "-v", "github.com/ethereum/go-ethereum/mobile"))
+	// MODIFIED by Jakub Pajek (mobile make android)
+	// https://developer.android.com/guide/practices/page-sizes
+	// https://github.com/android/ndk/wiki/Changelog-r28
+	// https://pkg.go.dev/golang.org/x/mobile/cmd/gomobile
+	// Beginning with Android 15 (API level 35), the Android system supports devices that are configured
+	// to use 16 KB page size. Accordingly, shared libraries should be build with NDK r28 or higher,
+	// which produces 16 KB-aligned libs by default. The minimum API level supported by NDK r28 is 21,
+	// however gomobile defaults to 16, so unless we raise it, build will fail with the following error:
+	//	.../go-ethereum/build/bin/gomobile: no usable NDK in $ANDROID_HOME: unsupported API version 16 (not in 21..35), open $ANDROID_HOME/ndk-bundle/meta/platforms.json: no such file or directory
+	//build.MustRun(gomobileTool("bind", "-ldflags", "-s -w", "--target", "android/arm64", "--javapkg", "org.ethereum", "-v", "github.com/ethereum/go-ethereum/mobile"))
+	build.MustRun(gomobileTool("bind", "-ldflags", "-s -w", "--target", "android/arm64", "-androidapi", "21", "--javapkg", "org.ethereum", "-v", "github.com/ethereum/go-ethereum/mobile"))
 
 	if *local {
 		// If we're building locally, copy bundle to build dir and skip Maven
