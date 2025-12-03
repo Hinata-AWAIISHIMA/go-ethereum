@@ -1075,6 +1075,7 @@ func doAndroidArchive(cmdline []string) {
 	// MODIFIED by Jakub Pajek (mobile make android)
 	// Build arm64-v8a .so libraries only
 	//build.MustRun(gomobileTool("bind", "-ldflags", "-s -w", "--target", "android", "--javapkg", "org.ethereum", "-v", "github.com/ethereum/go-ethereum/mobile"))
+
 	// MODIFIED by Jakub Pajek (mobile make android)
 	// https://developer.android.com/guide/practices/page-sizes
 	// https://github.com/android/ndk/wiki/Changelog-r28
@@ -1085,7 +1086,22 @@ func doAndroidArchive(cmdline []string) {
 	// however gomobile defaults to 16, so unless we raise it, build will fail with the following error:
 	//	.../go-ethereum/build/bin/gomobile: no usable NDK in $ANDROID_HOME: unsupported API version 16 (not in 21..35), open $ANDROID_HOME/ndk-bundle/meta/platforms.json: no such file or directory
 	//build.MustRun(gomobileTool("bind", "-ldflags", "-s -w", "--target", "android/arm64", "--javapkg", "org.ethereum", "-v", "github.com/ethereum/go-ethereum/mobile"))
-	build.MustRun(gomobileTool("bind", "-ldflags", "-s -w", "--target", "android/arm64", "-androidapi", "21", "--javapkg", "org.ethereum", "-v", "github.com/ethereum/go-ethereum/mobile"))
+
+	// MODIFIED by Jakub Pajek (mobile make android)
+	// Both the Crashlytics SDK for NDK and the Crashlytics Gradle plugin depend on the presence
+	// of the GNU build ID within the native shared objects. You can verify the presence of this ID
+	// by running readelf -n on each binary. If the build ID is absent, add -Wl,--build-id to your
+	// build system's flags to fix the problem.
+	// https://firebase.google.com/docs/crashlytics/android/get-started-ndk#set-up-automatic-native-symbols-upload
+	// Using -B gobuildid (Recommended for Go 1.22+):
+	// Starting with more recent Go versions (Go 1.22+), the linker can derive the GNU build ID
+	// from the existing Go build ID automatically.
+	// Using External Linker Flags for Android:
+	// When building for Android, gomobile uses an external C linker (usually from the Android NDK).
+	// You need to pass arguments to that external linker via the Go linker's -extldflags option,
+	// which is nested inside the main -ldflags string (-ldflags="-extldflags '-Wl,--build-id'")
+	//build.MustRun(gomobileTool("bind", "-ldflags", "-s -w", "--target", "android/arm64", "-androidapi", "21", "--javapkg", "org.ethereum", "-v", "github.com/ethereum/go-ethereum/mobile"))
+	build.MustRun(gomobileTool("bind", "-ldflags", "-s -w -B gobuildid", "--target", "android/arm64", "-androidapi", "21", "--javapkg", "org.ethereum", "-v", "github.com/ethereum/go-ethereum/mobile"))
 
 	if *local {
 		// If we're building locally, copy bundle to build dir and skip Maven
