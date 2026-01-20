@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/p2p/elstack/el_stack" // if you copied el_stack directory directly below elstack directory, use it.
 )
@@ -79,7 +80,7 @@ func (d *VpnDelegate) OnConnectionError(msg string) {
 
 func (d *VpnDelegate) OnLinkedParams(ipAddrs, dnsAddrs, routes []string) {
 	elLog.Info("LinkedParams", "IP", ipAddrs, "DNS", dnsAddrs, "ROUTES", routes)
-	ipAddr := ipAddrs[0][:len(ipAddrs[0])-3] // trim subnet
+	ipAddr := ipAddrs[0][:strings.Index(ipAddrs[0], "/")]
 	d.ipAddr = ipAddr
 	d.linked <- true
 }
