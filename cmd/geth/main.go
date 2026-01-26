@@ -158,8 +158,6 @@ var (
 		utils.MinerNotifyFullFlag,
 		// ADDED by Hinata AWAIISHIMA BEG(el settings)
 		utils.UseELFlag,
-		utils.ELAccountFlag,
-		utils.ELPasswordFlag,
 		utils.ELVCFlag,
 		utils.ELVCPrivKeyFlag,
 		utils.ELIssuerPubkeyFlag,
