@@ -842,7 +842,9 @@ func (srv *Server) checkInboundConn(remoteIP netip.Addr) error {
 	// Reject Internet peers that try too often.
 	now := srv.clock.Now()
 	srv.inboundHistory.expire(now, nil)
-	if !netutil.AddrIsLAN(remoteIP) && srv.inboundHistory.contains(remoteIP.String()) {
+	// MODIFIED by Jakub Pajek (mobile connectivity)
+	//if !netutil.AddrIsLAN(remoteIP) && srv.inboundHistory.contains(remoteIP.String()) {
+	if !netutil.AddrIsLAN(remoteIP) && !netutil.AddrIsMobileLAN(remoteIP) && srv.inboundHistory.contains(remoteIP.String()) {
 		return errors.New("too many attempts")
 	}
 	srv.inboundHistory.add(remoteIP.String(), now.Add(inboundThrottleTime))

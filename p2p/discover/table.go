@@ -489,7 +489,9 @@ func (tab *Table) addIP(b *bucket, ip netip.Addr) bool {
 	if !ip.IsValid() || ip.IsUnspecified() {
 		return false // Nodes without IP cannot be added.
 	}
-	if netutil.AddrIsLAN(ip) {
+	// MODIFIED by Jakub Pajek (mobile connectivity)
+	//if netutil.AddrIsLAN(ip) {
+	if netutil.AddrIsLAN(ip) || netutil.AddrIsMobileLAN(ip) {
 		return true
 	}
 	if !tab.ips.AddAddr(ip) {
@@ -505,7 +507,9 @@ func (tab *Table) addIP(b *bucket, ip netip.Addr) bool {
 }
 
 func (tab *Table) removeIP(b *bucket, ip netip.Addr) {
-	if netutil.AddrIsLAN(ip) {
+	// MODIFIED by Jakub Pajek (mobile connectivity)
+	//if netutil.AddrIsLAN(ip) {
+	if netutil.AddrIsLAN(ip) || netutil.AddrIsMobileLAN(ip) {
 		return
 	}
 	tab.ips.RemoveAddr(ip)
