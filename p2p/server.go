@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -550,9 +551,26 @@ func (srv *Server) MaxDialedConns() (limit int) {
 	return limit
 }
 
+func networkForListenAddr(addr, defaultNetwork, ipv6Network string) string {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(addr))
+	if err != nil || host == "" {
+		return defaultNetwork
+	}
+	// IPv6 zone identifiers (e.g. fe80::1%eth0) are not accepted by ParseIP.
+	if zoneIdx := strings.IndexByte(host, '%'); zoneIdx >= 0 {
+		host = host[:zoneIdx]
+	}
+	ip := net.ParseIP(host)
+	if ip != nil && ip.To4() == nil {
+		return ipv6Network
+	}
+	return defaultNetwork
+}
+
 func (srv *Server) setupListening() error {
 	// Launch the listener.
-	listener, err := srv.listenFunc("tcp", srv.ListenAddr)
+	network := networkForListenAddr(srv.ListenAddr, "tcp", "tcp6")
+	listener, err := srv.listenFunc(network, srv.ListenAddr)
 	if err != nil {
 		return err
 	}
@@ -585,11 +603,12 @@ func (srv *Server) setupUDPListening() (*net.UDPConn, error) {
 	if srv.DiscAddr != "" {
 		listenAddr = srv.DiscAddr
 	}
-	addr, err := net.ResolveUDPAddr("udp", listenAddr)
+	network := networkForListenAddr(listenAddr, "udp", "udp6")
+	addr, err := net.ResolveUDPAddr(network, listenAddr)
 	if err != nil {
 		return nil, err
 	}
-	conn, err := net.ListenUDP("udp", addr)
+	conn, err := net.ListenUDP(network, addr)
 	if err != nil {
 		return nil, err
 	}

@@ -68,7 +68,21 @@ type tcpDialer struct {
 
 func (t tcpDialer) Dial(ctx context.Context, dest *enode.Node) (net.Conn, error) {
 	addr, _ := dest.TCPEndpoint()
-	return t.d.DialContext(ctx, "tcp", addr.String())
+	// ADDED by Hinata AWAIISHIMA BEG
+	var network string
+	a := addr.Addr()
+	switch {
+	case a.Is4():
+		network = "tcp"
+	case a.Is6():
+		network = "tcp6"
+	default:
+		return nil, errors.New("invalid IP")
+	}
+	// ADDED by Hinata AWAIISHIMA END
+	// MODIFIED by Hinata AWAIISHIMA
+	// return t.d.DialContext(ctx, "tcp", addr.String())
+	return t.d.DialContext(ctx, network, addr.String())
 }
 
 // checkDial errors:
