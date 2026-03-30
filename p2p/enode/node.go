@@ -72,7 +72,8 @@ func newNodeWithID(r *enr.Record, id ID) *Node {
 	valid6 := validIP(ip6)
 	switch {
 	case valid4 && valid6:
-		if localityScore(ip4) >= localityScore(ip6) {
+		// if localityScore(ip4) >= localityScore(ip6) {
+		if localityScore(ip4) > localityScore(ip6) {	// MODIFIED by Hinata AWAIISHIMA
 			n.setIP4(ip4)
 		} else {
 			n.setIP6(ip6)
