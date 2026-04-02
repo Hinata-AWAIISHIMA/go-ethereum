@@ -389,6 +389,13 @@ var (
 	// ADDED by Jakub Pajek END (clique options config)
 
 	// Transaction pool settings
+	// ADDED by Jakub Pajek BEG (read-only RPC node)
+	TxPoolReadOnlyFlag = &cli.BoolFlag{
+		Name:     "txpool.readonly",
+		Usage:    "Disables locally submitted transactions altogether (read-only RPC node)",
+		Category: flags.TxPoolCategory,
+	}
+	// ADDED by Jakub Pajek END (read-only RPC node)
 	TxPoolLocalsFlag = &cli.StringFlag{
 		Name:     "txpool.locals",
 		Usage:    "Comma separated accounts to treat as locals (no flush, priority inclusion)",
@@ -1625,6 +1632,11 @@ func setGPO(ctx *cli.Context, cfg *gasprice.Config, light bool) {
 }
 
 func setTxPool(ctx *cli.Context, cfg *txpool.Config) {
+	// ADDED by Jakub Pajek BEG (read-only RPC node)
+	if ctx.IsSet(TxPoolReadOnlyFlag.Name) {
+		cfg.ReadOnly = ctx.Bool(TxPoolReadOnlyFlag.Name)
+	}
+	// ADDED by Jakub Pajek END (read-only RPC node)
 	if ctx.IsSet(TxPoolLocalsFlag.Name) {
 		locals := strings.Split(ctx.String(TxPoolLocalsFlag.Name), ",")
 		for _, account := range locals {

@@ -162,7 +162,9 @@ func New(stack *node.Node, config *ethconfig.Config) (*LightEthereum, error) {
 		return nil, err
 	}
 	leth.chainReader = leth.blockchain
-	leth.txPool = light.NewTxPool(leth.chainConfig, leth.blockchain, leth.relay)
+	// MODIFIED by Jakub Pajek (read-only RPC node)
+	//leth.txPool = light.NewTxPool(leth.chainConfig, leth.blockchain, leth.relay)
+	leth.txPool = light.NewTxPool(config.TxPool, leth.chainConfig, leth.blockchain, leth.relay)
 
 	// Set up checkpoint oracle.
 	leth.oracle = leth.setupOracle(stack, genesisHash, config)

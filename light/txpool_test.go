@@ -27,10 +27,23 @@ import (
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
+	"github.com/ethereum/go-ethereum/core/txpool"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 )
+
+// ADDED by Jakub Pajek BEG (read-only RPC node)
+// testTxPoolConfig is a transaction pool configuration without stateful disk
+// sideeffects used during testing.
+var testTxPoolConfig txpool.Config
+
+func init() {
+	testTxPoolConfig = txpool.DefaultConfig
+	testTxPoolConfig.Journal = ""
+}
+
+// ADDED by Jakub Pajek END (read-only RPC node)
 
 type testTxRelay struct {
 	send, discard, mined chan int
@@ -107,7 +120,9 @@ func TestTxPool(t *testing.T) {
 	}
 	lightchain, _ := NewLightChain(odr, params.TestChainConfig, ethash.NewFullFaker(), nil)
 	txPermanent = 50
-	pool := NewTxPool(params.TestChainConfig, lightchain, relay)
+	// MODIFIED by Jakub Pajek (read-only RPC node)
+	//pool := NewTxPool(params.TestChainConfig, lightchain, relay)
+	pool := NewTxPool(testTxPoolConfig, params.TestChainConfig, lightchain, relay)
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 

@@ -95,6 +95,11 @@ var (
 	// ErrOverdraft is returned if a transaction would cause the senders balance to go negative
 	// thus invalidating a potential large number of transactions.
 	ErrOverdraft = errors.New("transaction would cause overdraft")
+
+	// ADDED by Jakub Pajek (read-only RPC node)
+	// ErrReadOnly is returned if a transaction is submitted to a read-only RPC node,
+	// which has locally submitted transactions disabled.
+	ErrReadOnly = errors.New("transaction submission disabled (read-only RPC node)")
 )
 
 var (
@@ -162,6 +167,8 @@ type blockChain interface {
 
 // Config are the configuration parameters of the transaction pool.
 type Config struct {
+	// ADDED by Jakub Pajek (read-only RPC node)
+	ReadOnly  bool             // Disables locally submitted transactions altogether (read-only RPC node)
 	Locals    []common.Address // Addresses that should be treated by default as local
 	NoLocals  bool             // Whether local transaction handling should be disabled
 	Journal   string           // Journal of local transactions to survive node restarts
@@ -324,7 +331,9 @@ func NewTxPool(config Config, chainconfig *params.ChainConfig, chain blockChain)
 	go pool.scheduleReorgLoop()
 
 	// If local transactions and journaling is enabled, load from disk
-	if !config.NoLocals && config.Journal != "" {
+	// MODIFIED by Jakub Pajek (read-only RPC node)
+	//if !config.NoLocals && config.Journal != "" {
+	if !config.ReadOnly && !config.NoLocals && config.Journal != "" {
 		pool.journal = newTxJournal(config.Journal)
 
 		if err := pool.journal.load(pool.AddLocals); err != nil {
@@ -933,9 +942,19 @@ func (pool *TxPool) promoteTx(addr common.Address, hash common.Hash, tx *types.T
 // This method is used to add transactions from the RPC API and performs synchronous pool
 // reorganization and event propagation.
 func (pool *TxPool) AddLocals(txs []*types.Transaction) []error {
+	// ADDED by Jakub Pajek BEG (read-only RPC node)
+	if pool.config.ReadOnly {
+		errs := make([]error, len(txs))
+		for i := range errs {
+			errs[i] = ErrReadOnly
+		}
+		return errs
+	}
+	// ADDED by Jakub Pajek END (read-only RPC node)
 	return pool.addTxs(txs, !pool.config.NoLocals, true)
 }
 
+// MEMO by Jakub Pajek (read-only RPC node)
 // AddLocal enqueues a single local transaction into the pool if it is valid. This is
 // a convenience wrapper around AddLocals.
 func (pool *TxPool) AddLocal(tx *types.Transaction) error {

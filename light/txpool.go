@@ -50,6 +50,8 @@ var txPermanent = uint64(500)
 // always receive all locally signed transactions in the same order as they are
 // created.
 type TxPool struct {
+	// ADDED by Jakub Pajek (read-only RPC node)
+	poolConfig   txpool.Config
 	config       *params.ChainConfig
 	signer       types.Signer
 	quit         chan bool
@@ -90,8 +92,12 @@ type TxRelayBackend interface {
 }
 
 // NewTxPool creates a new light transaction pool
-func NewTxPool(config *params.ChainConfig, chain *LightChain, relay TxRelayBackend) *TxPool {
+// MODIFIED by Jakub Pajek (read-only RPC node)
+// func NewTxPool(config *params.ChainConfig, chain *LightChain, relay TxRelayBackend) *TxPool {
+func NewTxPool(poolConfig txpool.Config, config *params.ChainConfig, chain *LightChain, relay TxRelayBackend) *TxPool {
 	pool := &TxPool{
+		// ADDED by Jakub Pajek (read-only RPC node)
+		poolConfig:  poolConfig,
 		config:      config,
 		signer:      types.LatestSigner(config),
 		nonce:       make(map[common.Address]uint64),
@@ -433,6 +439,12 @@ func (pool *TxPool) add(ctx context.Context, tx *types.Transaction) error {
 // Add adds a transaction to the pool if valid and passes it to the tx relay
 // backend
 func (pool *TxPool) Add(ctx context.Context, tx *types.Transaction) error {
+	// ADDED by Jakub Pajek BEG (read-only RPC node)
+	if pool.poolConfig.ReadOnly {
+		return txpool.ErrReadOnly
+	}
+	// ADDED by Jakub Pajek END (read-only RPC node)
+
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 	data, err := tx.MarshalBinary()
@@ -452,7 +464,19 @@ func (pool *TxPool) Add(ctx context.Context, tx *types.Transaction) error {
 
 // AddBatch adds all valid transactions to the pool and passes them to
 // the tx relay backend
-func (pool *TxPool) AddBatch(ctx context.Context, txs []*types.Transaction) {
+// MODIFIED by Jakub Pajek (read-only RPC node)
+// func (pool *TxPool) AddBatch(ctx context.Context, txs []*types.Transaction) {
+func (pool *TxPool) AddBatch(ctx context.Context, txs []*types.Transaction) []error {
+	// ADDED by Jakub Pajek BEG (read-only RPC node)
+	errs := make([]error, len(txs))
+	if pool.poolConfig.ReadOnly {
+		for i := range errs {
+			errs[i] = txpool.ErrReadOnly
+		}
+		return errs
+	}
+	// ADDED by Jakub Pajek END (read-only RPC node)
+
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 	var sendTx types.Transactions
@@ -465,6 +489,9 @@ func (pool *TxPool) AddBatch(ctx context.Context, txs []*types.Transaction) {
 	if len(sendTx) > 0 {
 		pool.relay.Send(sendTx)
 	}
+
+	// ADDED by Jakub Pajek (read-only RPC node)
+	return errs
 }
 
 // GetTransaction returns a transaction if it is contained in the pool

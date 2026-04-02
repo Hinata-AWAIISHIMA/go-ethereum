@@ -79,6 +79,8 @@ var (
 		utils.CliqueSnapshotCacheSizeFlag,
 		utils.CliqueSnapshotCacheCountFlag,
 		// ADDED by Jakub Pajek END (clique options config)
+		// ADDED by Jakub Pajek (read-only RPC node)
+		utils.TxPoolReadOnlyFlag,
 		utils.TxPoolLocalsFlag,
 		utils.TxPoolNoLocalsFlag,
 		utils.TxPoolJournalFlag,
