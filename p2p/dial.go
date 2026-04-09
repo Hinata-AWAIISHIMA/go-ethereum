@@ -66,23 +66,87 @@ type tcpDialer struct {
 	d *net.Dialer
 }
 
+// MODIFIED by Hinata AWAIISHIMA (reseach: IPv4/IPv6 dualstack)
 func (t tcpDialer) Dial(ctx context.Context, dest *enode.Node) (net.Conn, error) {
-	addr, _ := dest.TCPEndpoint()
-	// ADDED by Hinata AWAIISHIMA BEG
-	var network string
-	a := addr.Addr()
-	switch {
-	case a.Is4():
-		network = "tcp"
-	case a.Is6():
-		network = "tcp6"
-	default:
-		return nil, errors.New("invalid IP")
+	endpoints := tcpDialEndpoints(dest)
+	if len(endpoints) == 0 {
+		return nil, errors.New("node has no TCP endpoint")
 	}
-	// ADDED by Hinata AWAIISHIMA END
-	// MODIFIED by Hinata AWAIISHIMA
-	// return t.d.DialContext(ctx, "tcp", addr.String())
-	return t.d.DialContext(ctx, network, addr.String())
+	var firstErr error
+	for _, ep := range endpoints {
+		conn, err := t.d.DialContext(ctx, ep.network, ep.addr.String())
+		if err == nil {
+			return conn, nil
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	return nil, firstErr
+}
+
+// ADDED by Hinata AWAIISHIMA (reseach: IPv4/IPv6 dualstack)
+type dialEndpoint struct {
+	network string
+	addr    netip.AddrPort
+}
+
+// ADDED by Hinata AWAIISHIMA (reseach: IPv4/IPv6 dualstack)
+func tcpDialEndpoints(dest *enode.Node) []dialEndpoint {
+	var (
+		endpoints []dialEndpoint
+		seen      = make(map[netip.AddrPort]struct{}, 2)
+	)
+	add := func(ap netip.AddrPort) {
+		if !ap.IsValid() || ap.Port() == 0 {
+			return
+		}
+		if _, ok := seen[ap]; ok {
+			return
+		}
+		seen[ap] = struct{}{}
+		switch a := ap.Addr(); {
+		case a.Is4() || a.Is4In6():
+			endpoints = append(endpoints, dialEndpoint{network: "tcp4", addr: ap})
+		case a.Is6():
+			endpoints = append(endpoints, dialEndpoint{network: "tcp6", addr: ap})
+		}
+	}
+
+	// Try the default endpoint first to keep existing preference behavior.
+	if ap, ok := dest.TCPEndpoint(); ok {
+		add(ap)
+	}
+
+	// Then add the alternate family from the ENR, if present.
+	var (
+		ip4      netip.Addr
+		ip6      netip.Addr
+		tcp4     enr.TCP
+		tcp6     enr.TCP6
+		hasTCP4  bool
+		hasTCP6  bool
+	)
+	if dest.Load((*enr.IPv4Addr)(&ip4)) == nil {
+		if dest.Load(&tcp4) == nil && tcp4 != 0 {
+			hasTCP4 = true
+		}
+	}
+	if dest.Load((*enr.IPv6Addr)(&ip6)) == nil {
+		if dest.Load(&tcp6) == nil && tcp6 != 0 {
+			hasTCP6 = true
+		} else if dest.Load(&tcp4) == nil && tcp4 != 0 {
+			tcp6 = enr.TCP6(tcp4)
+			hasTCP6 = true
+		}
+	}
+	if hasTCP4 {
+		add(netip.AddrPortFrom(ip4, uint16(tcp4)))
+	}
+	if hasTCP6 {
+		add(netip.AddrPortFrom(ip6, uint16(tcp6)))
+	}
+	return endpoints
 }
 
 // checkDial errors:
