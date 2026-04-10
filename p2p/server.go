@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -90,7 +91,9 @@ type Server struct {
 	lock    sync.Mutex // protects running
 	running bool
 
-	listener     net.Listener
+	listener net.Listener
+	// ADDED by Hinata AWAIISHIMA (research: IPv4/IPv6 dualstack)
+	listeners    []net.Listener
 	ourHandshake *protoHandshake
 	loopWG       sync.WaitGroup // loop, listenLoop
 	peerFeed     event.Feed
@@ -327,9 +330,14 @@ func (srv *Server) Stop() {
 		return
 	}
 	srv.running = false
-	if srv.listener != nil {
+	// MODIFIED by Hinata AWAIISHIMA (research: IPv4/IPv6 dualstack)
+	// if srv.listener != nil {
+	// 	// this unblocks listener Accept
+	// 	srv.listener.Close()
+	// }
+	for _, listener := range srv.listeners {
 		// this unblocks listener Accept
-		srv.listener.Close()
+		listener.Close()
 	}
 	close(srv.quit)
 	srv.lock.Unlock()
@@ -567,21 +575,132 @@ func networkForListenAddr(addr, defaultNetwork, ipv6Network string) string {
 	return defaultNetwork
 }
 
-func (srv *Server) setupListening() error {
-	// Launch the listener.
-	network := networkForListenAddr(srv.ListenAddr, "tcp", "tcp6")
-	listener, err := srv.listenFunc(network, srv.ListenAddr)
-	if err != nil {
-		return err
-	}
-	srv.listener = listener
-	srv.ListenAddr = listener.Addr().String()
+// ADDED by Hinata AWAIISHIMA (reseach: IPv4/IPv6 dualstack)
+type listenEndpoint struct {
+	network string
+	addr    string
+}
 
-	// Update the local node record and map the TCP listening port if NAT is configured.
-	tcp, isTCP := listener.Addr().(*net.TCPAddr)
-	if isTCP {
-		srv.localnode.Set(enr.TCP(tcp.Port))
-		if !tcp.IP.IsLoopback() && !tcp.IP.IsPrivate() {
+// ADDED by Hinata AWAIISHIMA (reseach: IPv4/IPv6 dualstack)
+func listenEndpointsForAddr(addr string) []listenEndpoint {
+	addr = strings.TrimSpace(addr)
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return []listenEndpoint{{network: networkForListenAddr(addr, "tcp", "tcp6"), addr: addr}}
+	}
+	if host == "" {
+		return []listenEndpoint{
+			{network: "tcp4", addr: net.JoinHostPort("0.0.0.0", port)},
+			{network: "tcp6", addr: net.JoinHostPort("::", port)},
+		}
+	}
+
+	// IPv6 zone identifiers (e.g. fe80::1%eth0) are not accepted by ParseIP.
+	hostNoZone := host
+	if zoneIdx := strings.IndexByte(hostNoZone, '%'); zoneIdx >= 0 {
+		hostNoZone = hostNoZone[:zoneIdx]
+	}
+	ip := net.ParseIP(hostNoZone)
+	if ip == nil {
+		return []listenEndpoint{{network: networkForListenAddr(addr, "tcp", "tcp6"), addr: addr}}
+	}
+	if ip.IsUnspecified() {
+		return []listenEndpoint{
+			{network: "tcp4", addr: net.JoinHostPort("0.0.0.0", port)},
+			{network: "tcp6", addr: net.JoinHostPort("::", port)},
+		}
+	}
+	if ip.To4() != nil {
+		return []listenEndpoint{{network: "tcp4", addr: addr}}
+	}
+	return []listenEndpoint{{network: "tcp6", addr: addr}}
+}
+
+// ADDED by Hinata AWAIISHIMA (reseach: IPv4/IPv6 dualstack)
+func endpointPort(addr string) (int, error) {
+	_, port, err := net.SplitHostPort(strings.TrimSpace(addr))
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(port)
+}
+
+// ADDED by Hinata AWAIISHIMA (reseach: IPv4/IPv6 dualstack)
+func withEndpointPort(addr string, port int) string {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(addr))
+	if err != nil {
+		return addr
+	}
+	return net.JoinHostPort(host, strconv.Itoa(port))
+}
+
+func (srv *Server) setupListening() error {
+	// ADDED by Hinata AWAIISHIMA BEG (reseach: IPv4/IPv6 dualstack)
+	// Launch listeners. For wildcard listen addresses, we attempt both families.
+	endpoints := listenEndpointsForAddr(srv.ListenAddr)
+	wantedPort, wantedPortErr := endpointPort(srv.ListenAddr)
+	shareDynamicPort := wantedPortErr == nil && wantedPort == 0
+
+	listeners := make([]net.Listener, 0, len(endpoints))
+	var firstPort int
+	for _, ep := range endpoints {
+		addr := ep.addr
+		if shareDynamicPort && firstPort != 0 {
+			if p, err := endpointPort(addr); err == nil && p == 0 {
+				addr = withEndpointPort(addr, firstPort)
+			}
+		}
+		// MODIFIED by Hinata AWAIISHIMA BEG (research: IPv4/IPv6 dualstack)
+		// listener, err := srv.listenFunc(network, srv.ListenAddr)
+		listener, err := srv.listenFunc(ep.network, addr)
+		if err != nil {
+			// return err
+			srv.log.Debug("TCP listener setup failed", "network", ep.network, "addr", addr, "err", err)
+			continue
+		}
+		// MODIFIED by Hinata AWAIISHIMA END (research: IPv4/IPv6 dualstack)
+		if tcp, isTCP := listener.Addr().(*net.TCPAddr); isTCP && firstPort == 0 {
+			firstPort = tcp.Port
+		}
+		listeners = append(listeners, listener)
+	}
+	if len(listeners) == 0 {
+		return fmt.Errorf("failed to start TCP listener on %q", srv.ListenAddr)
+	}
+	// MODIFIED by Hinata AWAIISHIMA BEG (reseach: IPv4/IPv6 dualstack)
+	srv.listeners = listeners
+	// srv.listener = listener
+	srv.listener = listeners[0]
+	// srv.ListenAddr = listener.Addr().String()
+	srv.ListenAddr = listeners[0].Addr().String()
+	// MODIFIED by Hinata AWAIISHIMA END (reseach: IPv4/IPv6 dualstack)
+
+	// Update the local node record and map TCP listening ports if NAT is configured.
+	var (
+		tcp4Port   int
+		tcp6Port   int
+		mappedPort = make(map[int]struct{})
+	)
+	for _, listener := range listeners {
+		tcp, isTCP := listener.Addr().(*net.TCPAddr)
+		if !isTCP {
+			continue
+		}
+		addr := netutil.IPToAddr(tcp.IP)
+		switch {
+		case addr.Is4():
+			if tcp4Port == 0 {
+				tcp4Port = tcp.Port
+			}
+		case addr.Is6() && !addr.Is4In6():
+			if tcp6Port == 0 {
+				tcp6Port = tcp.Port
+			}
+		}
+		// MODIFIED by Hinata AWAIISHIMA (research: IPv4/IPv6 dualstack)
+		// if !tcp.IP.IsLoopback() && !tcp.IP.IsPrivate() {
+		if _, seen := mappedPort[tcp.Port]; !seen && !tcp.IP.IsLoopback() && !tcp.IP.IsPrivate() {
+			mappedPort[tcp.Port] = struct{}{}
 			srv.portMappingRegister <- &portMapping{
 				protocol: "TCP",
 				name:     "ethereum p2p",
@@ -589,9 +708,23 @@ func (srv *Server) setupListening() error {
 			}
 		}
 	}
+	if tcp4Port != 0 {
+		srv.localnode.Set(enr.TCP(tcp4Port))
+	} else if tcp6Port != 0 {
+		// Keep tcp key populated for compatibility even in IPv6-only listen setups.
+		srv.localnode.Set(enr.TCP(tcp6Port))
+	}
+	if tcp6Port != 0 {
+		srv.localnode.Set(enr.TCP6(tcp6Port))
+	}
 
-	srv.loopWG.Add(1)
-	go srv.listenLoop()
+	// MODIFIED by Hinata AWAIISHIMA BEG (research: IPv4/IPv6 dualstack)
+	for _, listener := range listeners {
+		srv.loopWG.Add(1)
+		go srv.listenLoop(listener)
+	}
+	// MODIFIED by Hinata AWAIISHIMA END (research: IPv4/IPv6 dualstack)
+	// ADDED by Hinata AWAIISHIMA END (reseach: IPv4/IPv6 dualstack)
 	return nil
 }
 
@@ -782,8 +915,11 @@ func (srv *Server) addPeerChecks(peers map[enode.ID]*Peer, inboundCount int, c *
 
 // listenLoop runs in its own goroutine and accepts
 // inbound connections.
-func (srv *Server) listenLoop() {
-	srv.log.Debug("TCP listener up", "addr", srv.listener.Addr())
+// MODIFIED by Hinata AWAIISHIMA (research: IPv4/IPv6 dualstack)
+// func (srv *Server) listenLoop() {
+func (srv *Server) listenLoop(listener net.Listener) {
+	// srv.log.Debug("TCP listener up", "addr", srv.listener.Addr())
+	srv.log.Debug("TCP listener up", "addr", listener.Addr())
 
 	// The slots channel limits accepts of new connections.
 	tokens := defaultMaxPendingPeers
@@ -814,7 +950,8 @@ func (srv *Server) listenLoop() {
 			lastLog time.Time
 		)
 		for {
-			fd, err = srv.listener.Accept()
+			// fd, err = srv.listener.Accept()
+			fd, err = listener.Accept()
 			if netutil.IsTemporaryError(err) {
 				if time.Since(lastLog) > 1*time.Second {
 					srv.log.Debug("Temporary read error", "err", err)
