@@ -705,7 +705,8 @@ func (t *UDPv4) handlePing(h *packetHandlerV4, from netip.AddrPort, fromID enode
 		t.tab.addInboundNode(n)
 	}
 
-	// Update node database and endpoint predictor.
+	// Update node database and endpoint predictor. The endpoint statement is tracked by
+	// address family so IPv4 and IPv6 advertised endpoints can evolve independently.
 	t.db.UpdateLastPingReceived(n.ID(), from.Addr(), time.Now())
 	toaddr := netip.AddrPortFrom(netutil.IPToAddr(req.To.IP), req.To.UDP)
 	t.localNode.UDPEndpointStatement(from, toaddr)

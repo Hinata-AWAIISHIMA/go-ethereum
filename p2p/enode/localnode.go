@@ -175,6 +175,8 @@ func (ln *LocalNode) delete(e enr.Entry) {
 	}
 }
 
+// endpointForIP returns the endpoint tracker for the given address family. IPv4 and
+// IPv6 endpoints are learned independently so that ENR can advertise both families.
 func (ln *LocalNode) endpointForIP(ip netip.Addr) *lnEndpoint {
 	if ip.Is4() {
 		return &ln.endpoint4
@@ -214,7 +216,8 @@ func (ln *LocalNode) SetFallbackUDP(port int) {
 }
 
 // UDPEndpointStatement should be called whenever a statement about the local node's
-// UDP endpoint is received. It feeds the local endpoint predictor.
+// UDP endpoint is received. The endpoint is tracked per address family, allowing IPv4
+// and IPv6 advertised endpoints to converge independently from peer observations.
 func (ln *LocalNode) UDPEndpointStatement(fromaddr, endpoint netip.AddrPort) {
 	ln.mu.Lock()
 	defer ln.mu.Unlock()
@@ -233,7 +236,8 @@ func (ln *LocalNode) UDPContact(toaddr netip.AddrPort) {
 	ln.updateEndpoints()
 }
 
-// updateEndpoints updates the record with predicted endpoints.
+// updateEndpoints updates the record with predicted endpoints. Address and port entries
+// are derived independently for IPv4 and IPv6, then written back into the ENR.
 func (ln *LocalNode) updateEndpoints() {
 	ip4, udp4 := ln.endpoint4.get()
 	ip6, udp6 := ln.endpoint6.get()

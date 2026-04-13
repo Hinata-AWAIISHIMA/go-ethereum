@@ -92,8 +92,12 @@ type Server struct {
 	running bool
 
 	listener net.Listener
-	// ADDED by Hinata AWAIISHIMA (research: IPv4/IPv6 dualstack)
-	listeners    []net.Listener
+	// ADDED by Hinata AWAIISHIMA BEG (research: IPv4/IPv6 dualstack)
+	listeners        []net.Listener
+	listenConfigAddr string
+	tcpListenPort    int
+	tcpListenPort6   int
+	// ADDED by Hinata AWAIISHIMA END (research: IPv4/IPv6 dualstack)
 	ourHandshake *protoHandshake
 	loopWG       sync.WaitGroup // loop, listenLoop
 	peerFeed     event.Feed
@@ -347,7 +351,9 @@ func (srv *Server) Stop() {
 // sharedUDPConn implements a shared connection. Write sends messages to the underlying connection while read returns
 // messages that were found unprocessable and sent to the unhandled channel by the primary listener.
 type sharedUDPConn struct {
-	*net.UDPConn
+	// MODIFIED by Hinata AWAIISHIMA (research: IPv4/IPv6 dualstack)
+	// net.UDPConn
+	discover.UDPConn
 	unhandled chan discover.ReadPacket
 }
 
@@ -368,6 +374,106 @@ func (s *sharedUDPConn) ReadFromUDPAddrPort(b []byte) (n int, addr netip.AddrPor
 // Close implements discover.UDPConn
 func (s *sharedUDPConn) Close() error {
 	return nil
+}
+
+// ADDED by Hinata AWAIISHIMA (research: IPv4/IPv6 dualstack)
+type udpListenConn struct {
+	network string
+	conn    *net.UDPConn
+}
+
+// ADDED by Hinata AWAIISHIMA (research: IPv4/IPv6 dualstack)
+type dualStackUDPConn struct {
+	conns     []udpListenConn
+	readCh    chan discover.ReadPacket
+	closeCh   chan struct{}
+	closeOnce sync.Once
+	wg        sync.WaitGroup
+}
+
+// ADDED by Hinata AWAIISHIMA (research: IPv4/IPv6 dualstack)
+func newDualStackUDPConn(conns []udpListenConn) *dualStackUDPConn {
+	c := &dualStackUDPConn{
+		conns:   conns,
+		readCh:  make(chan discover.ReadPacket, len(conns)*2),
+		closeCh: make(chan struct{}),
+	}
+	for _, uc := range conns {
+		c.wg.Add(1)
+		go c.readLoop(uc)
+	}
+	return c
+}
+
+// ADDED by Hinata AWAIISHIMA (research: IPv4/IPv6 dualstack)
+func (c *dualStackUDPConn) readLoop(uc udpListenConn) {
+	defer c.wg.Done()
+	var buf [1280]byte
+	for {
+		n, addr, err := uc.conn.ReadFromUDPAddrPort(buf[:])
+		if err != nil {
+			return
+		}
+		packet := make([]byte, n)
+		copy(packet, buf[:n])
+		select {
+		case c.readCh <- discover.ReadPacket{Addr: addr, Data: packet}:
+		case <-c.closeCh:
+			return
+		}
+	}
+}
+
+// ADDED by Hinata AWAIISHIMA (research: IPv4/IPv6 dualstack)
+func (c *dualStackUDPConn) ReadFromUDPAddrPort(b []byte) (n int, addr netip.AddrPort, err error) {
+	packet, ok := <-c.readCh
+	if !ok {
+		return 0, netip.AddrPort{}, errors.New("connection was closed")
+	}
+	n = copy(b, packet.Data)
+	return n, packet.Addr, nil
+}
+
+// ADDED by Hinata AWAIISHIMA (research: IPv4/IPv6 dualstack)
+func (c *dualStackUDPConn) WriteToUDPAddrPort(b []byte, addr netip.AddrPort) (n int, err error) {
+	ip := addr.Addr()
+	if ip.Is4In6() {
+		ip = netip.AddrFrom4(ip.As4())
+		addr = netip.AddrPortFrom(ip, addr.Port())
+	}
+	for _, uc := range c.conns {
+		switch {
+		case ip.Is4() && uc.network == "udp4":
+			return uc.conn.WriteToUDPAddrPort(b, addr)
+		case ip.Is6() && !ip.Is4In6() && uc.network == "udp6":
+			return uc.conn.WriteToUDPAddrPort(b, addr)
+		}
+	}
+	return 0, fmt.Errorf("no UDP listener for %v", addr)
+}
+
+// ADDED by Hinata AWAIISHIMA (research: IPv4/IPv6 dualstack)
+func (c *dualStackUDPConn) Close() error {
+	var firstErr error
+	c.closeOnce.Do(func() {
+		close(c.closeCh)
+		for _, uc := range c.conns {
+			if err := uc.conn.Close(); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+		c.wg.Wait()
+		close(c.readCh)
+	})
+	return firstErr
+}
+
+// ADDED by Hinata AWAIISHIMA (research: IPv4/IPv6 dualstack)
+func (c *dualStackUDPConn) LocalAddr() net.Addr {
+	if len(c.conns) == 0 {
+		return nil
+	}
+	return c.conns[0].conn.LocalAddr()
 }
 
 // Start starts running the server.
@@ -400,6 +506,8 @@ func (srv *Server) Start() (err error) {
 	if srv.listenFunc == nil {
 		srv.listenFunc = net.Listen
 	}
+	// ADDED by Hinata AWAIISHIMA (research: IPv4/IPv6 dualstack)
+	srv.listenConfigAddr = srv.ListenAddr
 	srv.quit = make(chan struct{})
 	srv.delpeer = make(chan peerDrop)
 	srv.checkpointPostHandshake = make(chan *conn)
@@ -445,6 +553,9 @@ func (srv *Server) setupLocalNode() error {
 	}
 	srv.nodedb = db
 	srv.localnode = enode.NewLocalNode(db, srv.PrivateKey)
+	// Keep a loopback fallback for IPv4 until discovery or NAT learns a better
+	// advertised endpoint. IPv6 should similarly converge through endpoint prediction
+	// or an explicit/static address and is not derived from wildcard listen addresses.
 	srv.localnode.SetFallbackIP(net.IP{127, 0, 0, 1})
 	// TODO: check conflicts
 	for _, p := range srv.Protocols {
@@ -616,6 +727,40 @@ func listenEndpointsForAddr(addr string) []listenEndpoint {
 	return []listenEndpoint{{network: "tcp6", addr: addr}}
 }
 
+// ADDED by Hinata AWAIISHIMA (research: IPv4/IPv6 dualstack)
+func udpListenEndpointsForAddr(addr string) []listenEndpoint {
+	addr = strings.TrimSpace(addr)
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return []listenEndpoint{{network: networkForListenAddr(addr, "udp", "udp6"), addr: addr}}
+	}
+	if host == "" {
+		return []listenEndpoint{
+			{network: "udp4", addr: net.JoinHostPort("0.0.0.0", port)},
+			{network: "udp6", addr: net.JoinHostPort("::", port)},
+		}
+	}
+
+	hostNoZone := host
+	if zoneIdx := strings.IndexByte(hostNoZone, '%'); zoneIdx >= 0 {
+		hostNoZone = hostNoZone[:zoneIdx]
+	}
+	ip := net.ParseIP(hostNoZone)
+	if ip == nil {
+		return []listenEndpoint{{network: networkForListenAddr(addr, "udp", "udp6"), addr: addr}}
+	}
+	if ip.IsUnspecified() {
+		return []listenEndpoint{
+			{network: "udp4", addr: net.JoinHostPort("0.0.0.0", port)},
+			{network: "udp6", addr: net.JoinHostPort("::", port)},
+		}
+	}
+	if ip.To4() != nil {
+		return []listenEndpoint{{network: "udp4", addr: addr}}
+	}
+	return []listenEndpoint{{network: "udp6", addr: addr}}
+}
+
 // ADDED by Hinata AWAIISHIMA (reseach: IPv4/IPv6 dualstack)
 func endpointPort(addr string) (int, error) {
 	_, port, err := net.SplitHostPort(strings.TrimSpace(addr))
@@ -709,12 +854,15 @@ func (srv *Server) setupListening() error {
 		}
 	}
 	if tcp4Port != 0 {
+		srv.tcpListenPort = tcp4Port
 		srv.localnode.Set(enr.TCP(tcp4Port))
 	} else if tcp6Port != 0 {
+		srv.tcpListenPort = tcp6Port
 		// Keep tcp key populated for compatibility even in IPv6-only listen setups.
 		srv.localnode.Set(enr.TCP(tcp6Port))
 	}
 	if tcp6Port != 0 {
+		srv.tcpListenPort6 = tcp6Port
 		srv.localnode.Set(enr.TCP6(tcp6Port))
 	}
 
@@ -728,35 +876,84 @@ func (srv *Server) setupListening() error {
 	return nil
 }
 
-func (srv *Server) setupUDPListening() (*net.UDPConn, error) {
-	listenAddr := srv.ListenAddr
+// MODIFIED by Hinata AWAIISHIMA (research: IPv4/IPv6 dualstack)
+// func (srv *Server) setupUDPListening() (net.UDPConn, error) {
+func (srv *Server) setupUDPListening() (discover.UDPConn, error) {
+	// MODIFIED by Hinata AWAIISHIMA (research: IPv4/IPv6)
+	// listenAddr := srv.ListenAddr
+	listenAddr := srv.listenConfigAddr
 
 	// Use an alternate listening address for UDP if
 	// a custom discovery address is configured.
 	if srv.DiscAddr != "" {
 		listenAddr = srv.DiscAddr
 	}
-	network := networkForListenAddr(listenAddr, "udp", "udp6")
-	addr, err := net.ResolveUDPAddr(network, listenAddr)
-	if err != nil {
-		return nil, err
-	}
-	conn, err := net.ListenUDP(network, addr)
-	if err != nil {
-		return nil, err
-	}
-	laddr := conn.LocalAddr().(*net.UDPAddr)
-	srv.localnode.SetFallbackUDP(laddr.Port)
-	srv.log.Debug("UDP listener up", "addr", laddr)
-	if !laddr.IP.IsLoopback() && !laddr.IP.IsPrivate() {
-		srv.portMappingRegister <- &portMapping{
-			protocol: "UDP",
-			name:     "ethereum peer discovery",
-			port:     laddr.Port,
+	endpoints := udpListenEndpointsForAddr(listenAddr)
+	wantedPort, wantedPortErr := endpointPort(listenAddr)
+	shareDynamicPort := wantedPortErr == nil && wantedPort == 0
+	var firstPort int
+	if shareDynamicPort {
+		switch {
+		case srv.tcpListenPort != 0:
+			firstPort = srv.tcpListenPort
+		case srv.tcpListenPort6 != 0:
+			firstPort = srv.tcpListenPort6
 		}
 	}
 
-	return conn, nil
+	var (
+		conns      []udpListenConn
+		mappedPort = make(map[int]struct{})
+	)
+	for _, ep := range endpoints {
+		addr := ep.addr
+		if shareDynamicPort && firstPort != 0 {
+			if p, err := endpointPort(addr); err == nil && p == 0 {
+				addr = withEndpointPort(addr, firstPort)
+			}
+		}
+		udpAddr, err := net.ResolveUDPAddr(ep.network, addr)
+		if err != nil {
+			srv.log.Debug("UDP listener setup failed", "network", ep.network, "addr", addr, "err", err)
+			continue
+		}
+		conn, err := net.ListenUDP(ep.network, udpAddr)
+		if err != nil {
+			srv.log.Debug("UDP listener setup failed", "network", ep.network, "addr", addr, "err", err)
+			continue
+		}
+		laddr := conn.LocalAddr().(*net.UDPAddr)
+		if firstPort == 0 {
+			firstPort = laddr.Port
+		}
+		srv.log.Debug("UDP listener up", "network", ep.network, "addr", laddr)
+		if _, seen := mappedPort[laddr.Port]; !seen && !laddr.IP.IsLoopback() && !laddr.IP.IsPrivate() {
+			mappedPort[laddr.Port] = struct{}{}
+			srv.portMappingRegister <- &portMapping{
+				protocol: "UDP",
+				name:     "ethereum peer discovery",
+				port:     laddr.Port,
+			}
+		}
+		conns = append(conns, udpListenConn{network: ep.network, conn: conn})
+	}
+	if len(conns) == 0 {
+		return nil, fmt.Errorf("failed to start UDP listener on %q", listenAddr)
+	}
+
+	var udpPort int
+	for _, uc := range conns {
+		laddr := uc.conn.LocalAddr().(*net.UDPAddr)
+		if udpPort == 0 {
+			udpPort = laddr.Port
+		}
+	}
+	srv.localnode.SetFallbackUDP(udpPort)
+
+	if len(conns) == 1 {
+		return conns[0].conn, nil
+	}
+	return newDualStackUDPConn(conns), nil
 }
 
 // doPeerOp runs fn on the main loop.

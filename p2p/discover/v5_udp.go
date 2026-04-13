@@ -821,6 +821,8 @@ func (t *UDPv5) handle(p v5wire.Packet, fromID enode.ID, fromAddr netip.AddrPort
 	case *v5wire.Pong:
 		if t.handleCallResponse(fromID, fromAddr, p) {
 			toAddr := netip.AddrPortFrom(netutil.IPToAddr(p.ToIP), p.ToPort)
+			// Feed the endpoint predictor for the observed address family so dual-stack ENR
+			// advertisement can converge from peer observations.
 			t.localNode.UDPEndpointStatement(fromAddr, toAddr)
 		}
 	case *v5wire.Findnode:
