@@ -105,7 +105,7 @@ jobs:
           set -euxo pipefail
           go mod download
 
-      - name: Build ios/arm64 intermediate framework
+      - name: Build ios/arm64 intermediate xcframework
         run: |
           set -euxo pipefail
           mkdir -p "$RUNNER_TEMP/ios-arm64"
@@ -113,11 +113,11 @@ jobs:
             -ldflags "-s -w" \
             --target ios/arm64 \
             -v \
-            -o "$RUNNER_TEMP/ios-arm64/Geth.framework" \
+            -o "$RUNNER_TEMP/ios-arm64/Geth.xcframework" \
             github.com/ethereum/go-ethereum/mobile
-          test -d "$RUNNER_TEMP/ios-arm64/Geth.framework"
+          test -d "$RUNNER_TEMP/ios-arm64/Geth.xcframework"
 
-      - name: Build iossimulator/arm64 intermediate framework
+      - name: Build iossimulator/arm64 intermediate xcframework
         run: |
           set -euxo pipefail
           mkdir -p "$RUNNER_TEMP/iossimulator-arm64"
@@ -126,16 +126,20 @@ jobs:
             -ldflags "-s -w" \
             --target iossimulator/arm64 \
             -v \
-            -o "$RUNNER_TEMP/iossimulator-arm64/Geth.framework" \
+            -o "$RUNNER_TEMP/iossimulator-arm64/Geth.xcframework" \
             github.com/ethereum/go-ethereum/mobile
-          test -d "$RUNNER_TEMP/iossimulator-arm64/Geth.framework"
+          test -d "$RUNNER_TEMP/iossimulator-arm64/Geth.xcframework"
 
       - name: Create final xcframework
         run: |
           set -euxo pipefail
+          ios_framework="$(find "$RUNNER_TEMP/ios-arm64/Geth.xcframework" -type d -name Geth.framework -print -quit)"
+          simulator_framework="$(find "$RUNNER_TEMP/iossimulator-arm64/Geth.xcframework" -type d -name Geth.framework -print -quit)"
+          test -n "$ios_framework"
+          test -n "$simulator_framework"
           rm -rf build/bin/Geth.xcframework
           xcodebuild -create-xcframework \
-            -framework "$RUNNER_TEMP/ios-arm64/Geth.framework" \
-            -framework "$RUNNER_TEMP/iossimulator-arm64/Geth.framework" \
+            -framework "$ios_framework" \
+            -framework "$simulator_framework" \
             -output build/bin/Geth.xcframework
           test -d build/bin/Geth.xcframework
