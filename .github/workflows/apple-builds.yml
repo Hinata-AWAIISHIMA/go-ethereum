@@ -40,7 +40,7 @@ jobs:
         run: |
           set -euxo pipefail
           env GO111MODULE=on GOFLAGS='-x -work' go run build/ci.go install 2>&1 | tee "$RUNNER_TEMP/make-all.log"
-          rg "libel_stack\\.a|el_stack/libs" "$RUNNER_TEMP/make-all.log"
+          grep -E "libel_stack\\.a|el_stack/libs" "$RUNNER_TEMP/make-all.log"
 
   ios-make-ios:
     name: make ios equivalent
@@ -84,7 +84,7 @@ jobs:
             -o build/bin/Geth.xcframework \
             github.com/ethereum/go-ethereum/mobile 2>&1 | tee "$RUNNER_TEMP/make-ios.log"
           test -d build/bin/Geth.xcframework
-          rg "libel_stack\\.a|el_stack/libs" "$RUNNER_TEMP/make-ios.log"
+          grep -E "libel_stack\\.a|el_stack/libs" "$RUNNER_TEMP/make-ios.log"
 
   ios-explicit-arm64-targets:
     name: gomobile bind -> xcframework (ios/arm64, iossimulator/arm64)
@@ -134,7 +134,7 @@ jobs:
             -o "$RUNNER_TEMP/ios-arm64/Geth.xcframework" \
             github.com/ethereum/go-ethereum/mobile 2>&1 | tee "$RUNNER_TEMP/ios-arm64-bind.log"
           test -d "$RUNNER_TEMP/ios-arm64/Geth.xcframework"
-          rg "libel_stack\\.a|el_stack/libs" "$RUNNER_TEMP/ios-arm64-bind.log"
+          grep -E "libel_stack\\.a|el_stack/libs" "$RUNNER_TEMP/ios-arm64-bind.log"
 
       - name: Build iossimulator/arm64 intermediate xcframework
         run: |
@@ -150,7 +150,7 @@ jobs:
             -o "$RUNNER_TEMP/iossimulator-arm64/Geth.xcframework" \
             github.com/ethereum/go-ethereum/mobile 2>&1 | tee "$RUNNER_TEMP/iossimulator-arm64-bind.log"
           test -d "$RUNNER_TEMP/iossimulator-arm64/Geth.xcframework"
-          rg "libel_stack\\.a|el_stack/libs" "$RUNNER_TEMP/iossimulator-arm64-bind.log"
+          grep -E "libel_stack\\.a|el_stack/libs" "$RUNNER_TEMP/iossimulator-arm64-bind.log"
 
       - name: Create final xcframework
         run: |
