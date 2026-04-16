@@ -68,18 +68,10 @@ jobs:
         run: |
           set -euxo pipefail
           make ios
-          test -d build/bin/Geth.framework
-
-      - name: Upload make ios artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: make-ios-framework
-          path: build/bin/Geth.framework
-          if-no-files-found: warn
+          test -d build/bin/Geth.xcframework
 
   ios-explicit-arm64-targets:
-    name: gomobile bind (ios/arm64, iossimulator/arm64)
+    name: gomobile bind -> xcframework (ios/arm64, iossimulator/arm64)
     runs-on: macos-15
     timeout-minutes: 40
 
@@ -113,7 +105,7 @@ jobs:
           set -euxo pipefail
           go mod download
 
-      - name: Build ios/arm64 framework
+      - name: Build ios/arm64 intermediate framework
         run: |
           set -euxo pipefail
           mkdir -p "$RUNNER_TEMP/ios-arm64"
@@ -125,7 +117,7 @@ jobs:
             github.com/ethereum/go-ethereum/mobile
           test -d "$RUNNER_TEMP/ios-arm64/Geth.framework"
 
-      - name: Build iossimulator/arm64 framework
+      - name: Build iossimulator/arm64 intermediate framework
         run: |
           set -euxo pipefail
           mkdir -p "$RUNNER_TEMP/iossimulator-arm64"
@@ -138,7 +130,7 @@ jobs:
             github.com/ethereum/go-ethereum/mobile
           test -d "$RUNNER_TEMP/iossimulator-arm64/Geth.framework"
 
-      - name: Combine XCFramework
+      - name: Create final xcframework
         run: |
           set -euxo pipefail
           rm -rf build/bin/Geth.xcframework
@@ -147,11 +139,3 @@ jobs:
             -framework "$RUNNER_TEMP/iossimulator-arm64/Geth.framework" \
             -output build/bin/Geth.xcframework
           test -d build/bin/Geth.xcframework
-
-      - name: Upload explicit iOS artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: explicit-ios-arm64-xcframework
-          path: build/bin/Geth.xcframework
-          if-no-files-found: warn
