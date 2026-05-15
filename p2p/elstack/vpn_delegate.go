@@ -166,7 +166,7 @@ func SetupEL(cfg *ELConfig, results chan LinkedResult, quit <-chan struct{}) {
 	vpnCfg := el_stack.NewElStackVpnConfig(
 		vpnHost, vpnPort, antiOverlap,
 		vpnTimeoutSec, vpnKeepAliveSec,
-		el_stack.ElStackVpnConnectionTypeQuic,
+		el_stack.ElStackVpnConnectionTypeTcp,
 	)
 
 	productName := "go-ethereum-el"

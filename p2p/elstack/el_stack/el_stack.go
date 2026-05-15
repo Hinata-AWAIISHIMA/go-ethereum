@@ -5,7 +5,7 @@ package el_stack
 // #cgo ios,arm64 LDFLAGS: ${SRCDIR}/libs/ios_arm64/libel_stack.a -lm
 // #cgo iossimulator,arm64 LDFLAGS: ${SRCDIR}/libs/iossimulator_arm64/libel_stack.a -lm
 // #cgo darwin,arm64 LDFLAGS: ${SRCDIR}/libs/darwin_arm64/libel_stack.a -lm -framework SystemConfiguration -framework CoreFoundation
-// #cgo android,arm64 LDFLAGS: ${SRCDIR}/libs/android_arm64/libel_stack_v1.14.23.a -lm
+// #cgo android,arm64 LDFLAGS: ${SRCDIR}/libs/android_arm64/libel_stack_tcp.a -lm -llog
 // #cgo !android,linux,amd64 LDFLAGS: ${SRCDIR}/libs/linux_amd64/libel_stack.a -lm
 // #cgo !android,linux,arm64 LDFLAGS: ${SRCDIR}/libs/linux_arm64/libel_stack.a -lm
 // #include <el_stack.h>
@@ -14,19 +14,13 @@ import "C"
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"math"
-	"net"
-	"net/netip"
-	"os"
-	"reflect"
 	"runtime"
 	"runtime/cgo"
 	"sync"
 	"sync/atomic"
-	"time"
 	"unsafe"
 )
 
@@ -46,7 +40,29 @@ type RustBufferI interface {
 	Capacity() uint64
 }
 
-func RustBufferFromExternal(b RustBufferI) GoRustBuffer {
+// C.RustBuffer fields exposed as an interface so they can be accessed in different Go packages.
+// See https://github.com/golang/go/issues/13467
+type ExternalCRustBuffer interface {
+	Data() unsafe.Pointer
+	Len() uint64
+	Capacity() uint64
+}
+
+func RustBufferFromC(b C.RustBuffer) ExternalCRustBuffer {
+	return GoRustBuffer{
+		inner: b,
+	}
+}
+
+func CFromRustBuffer(b ExternalCRustBuffer) C.RustBuffer {
+	return C.RustBuffer{
+		capacity: C.uint64_t(b.Capacity()),
+		len:      C.uint64_t(b.Len()),
+		data:     (*C.uchar)(b.Data()),
+	}
+}
+
+func RustBufferFromExternal(b ExternalCRustBuffer) GoRustBuffer {
 	return GoRustBuffer{
 		inner: C.RustBuffer{
 			capacity: C.uint64_t(b.Capacity()),
@@ -355,7 +371,7 @@ func init() {
 
 func uniffiCheckChecksums() {
 	// Get the bindings contract version from our ComponentInterface
-	bindingsContractVersion := 26
+	bindingsContractVersion := 29
 	// Get the scaffolding contract version by calling the into the dylib
 	scaffoldingContractVersion := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint32_t {
 		return C.ffi_el_stack_uniffi_contract_version()
@@ -738,7 +754,7 @@ func (FfiConverterString) Read(reader io.Reader) string {
 	length := readInt32(reader)
 	buffer := make([]byte, length)
 	read_length, err := reader.Read(buffer)
-	if err != nil {
+	if err != nil && err != io.EOF {
 		panic(err)
 	}
 	if read_length != int(length) {
@@ -749,6 +765,10 @@ func (FfiConverterString) Read(reader io.Reader) string {
 
 func (FfiConverterString) Lower(value string) C.RustBuffer {
 	return stringToRustBuffer(value)
+}
+
+func (c FfiConverterString) LowerExternal(value string) ExternalCRustBuffer {
+	return RustBufferFromC(stringToRustBuffer(value))
 }
 
 func (FfiConverterString) Write(writer io.Writer, value string) {
@@ -778,6 +798,10 @@ func (c FfiConverterBytes) Lower(value []byte) C.RustBuffer {
 	return LowerIntoRustBuffer[[]byte](c, value)
 }
 
+func (c FfiConverterBytes) LowerExternal(value []byte) ExternalCRustBuffer {
+	return RustBufferFromC(c.Lower(value))
+}
+
 func (c FfiConverterBytes) Write(writer io.Writer, value []byte) {
 	if len(value) > math.MaxInt32 {
 		panic("[]byte is too large to fit into Int32")
@@ -801,7 +825,7 @@ func (c FfiConverterBytes) Read(reader io.Reader) []byte {
 	length := readInt32(reader)
 	buffer := make([]byte, length)
 	read_length, err := reader.Read(buffer)
-	if err != nil {
+	if err != nil && err != io.EOF {
 		panic(err)
 	}
 	if read_length != int(length) {
@@ -1183,14 +1207,14 @@ func (_ FfiDestroyerElStackVpnConfig) Destroy(value *ElStackVpnConfig) {
 }
 
 type TcpListenerInterface interface {
-	Accept(timeoutMsecs uint64) (*TcpStream, *SocketError)
+	Accept(timeoutMsecs uint64) (*TcpStream, error)
 	BindAddr() string
 }
 type TcpListener struct {
 	ffiObject FfiObject
 }
 
-func (_self *TcpListener) Accept(timeoutMsecs uint64) (*TcpStream, *SocketError) {
+func (_self *TcpListener) Accept(timeoutMsecs uint64) (*TcpStream, error) {
 	_pointer := _self.ffiObject.incrementPointer("*TcpListener")
 	defer _self.ffiObject.decrementPointer()
 	res, err := uniffiRustCallAsync[SocketError](
@@ -1215,6 +1239,10 @@ func (_self *TcpListener) Accept(timeoutMsecs uint64) (*TcpStream, *SocketError)
 			C.ffi_el_stack_rust_future_free_pointer(handle)
 		},
 	)
+
+	if err == nil {
+		return res, nil
+	}
 
 	return res, err
 }
@@ -1282,8 +1310,8 @@ type TcpStreamInterface interface {
 	Close()
 	LocalAddr() string
 	PeerAddr() string
-	Recv(timeoutSecs uint64) ([]byte, *SocketError)
-	Send(buf []byte, timeoutSecs uint64) *SocketError
+	Recv(timeoutSecs uint64) ([]byte, error)
+	Send(buf []byte, timeoutSecs uint64) error
 }
 type TcpStream struct {
 	ffiObject FfiObject
@@ -1292,7 +1320,7 @@ type TcpStream struct {
 func (_self *TcpStream) Close() {
 	_pointer := _self.ffiObject.incrementPointer("*TcpStream")
 	defer _self.ffiObject.decrementPointer()
-	uniffiRustCallAsync[struct{}](
+	uniffiRustCallAsync[error](
 		nil,
 		// completeFn
 		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
@@ -1337,7 +1365,7 @@ func (_self *TcpStream) PeerAddr() string {
 	}))
 }
 
-func (_self *TcpStream) Recv(timeoutSecs uint64) ([]byte, *SocketError) {
+func (_self *TcpStream) Recv(timeoutSecs uint64) ([]byte, error) {
 	_pointer := _self.ffiObject.incrementPointer("*TcpStream")
 	defer _self.ffiObject.decrementPointer()
 	res, err := uniffiRustCallAsync[SocketError](
@@ -1365,40 +1393,14 @@ func (_self *TcpStream) Recv(timeoutSecs uint64) ([]byte, *SocketError) {
 		},
 	)
 
+	if err == nil {
+		return res, nil
+	}
+
 	return res, err
 }
 
-// RecvSafe は panic をキャッチしてエラーで返すラッパーです
-func (_self *TcpStream) RecvSafe(timeoutSecs uint64) (data []byte, serr error) {
-	defer func() {
-		if r := recover(); r != nil {
-			var e error
-			switch x := r.(type) {
-			case error:
-				e = x
-			default:
-				e = fmt.Errorf("%v", x)
-			}
-			// ここで「EOF」系はio.EOFで返す！
-			if e == io.EOF || e.Error() == "EOF" {
-				data, serr = nil, io.EOF
-			} else {
-				data, serr = nil, &SocketError{err: e}
-			}
-		}
-	}()
-	data, socketErr := _self.Recv(timeoutSecs)
-	if socketErr != nil {
-		return data, socketErr
-	}
-	if len(data) == 0 {
-		// 受信データ長が0 = EOF
-		return nil, io.EOF
-	}
-	return data, nil
-}
-
-func (_self *TcpStream) Send(buf []byte, timeoutSecs uint64) *SocketError {
+func (_self *TcpStream) Send(buf []byte, timeoutSecs uint64) error {
 	_pointer := _self.ffiObject.incrementPointer("*TcpStream")
 	defer _self.ffiObject.decrementPointer()
 	_, err := uniffiRustCallAsync[SocketError](
@@ -1421,6 +1423,10 @@ func (_self *TcpStream) Send(buf []byte, timeoutSecs uint64) *SocketError {
 			C.ffi_el_stack_rust_future_free_void(handle)
 		},
 	)
+
+	if err == nil {
+		return nil
+	}
 
 	return err
 }
@@ -1477,8 +1483,8 @@ type TlsStreamInterface interface {
 	Close()
 	LocalAddr() string
 	PeerAddr() string
-	Recv(timeoutSecs uint64) ([]byte, *SocketError)
-	Send(buf []byte, timeoutSecs uint64) *SocketError
+	Recv(timeoutSecs uint64) ([]byte, error)
+	Send(buf []byte, timeoutSecs uint64) error
 }
 type TlsStream struct {
 	ffiObject FfiObject
@@ -1487,7 +1493,7 @@ type TlsStream struct {
 func (_self *TlsStream) Close() {
 	_pointer := _self.ffiObject.incrementPointer("*TlsStream")
 	defer _self.ffiObject.decrementPointer()
-	uniffiRustCallAsync[struct{}](
+	uniffiRustCallAsync[error](
 		nil,
 		// completeFn
 		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
@@ -1532,7 +1538,7 @@ func (_self *TlsStream) PeerAddr() string {
 	}))
 }
 
-func (_self *TlsStream) Recv(timeoutSecs uint64) ([]byte, *SocketError) {
+func (_self *TlsStream) Recv(timeoutSecs uint64) ([]byte, error) {
 	_pointer := _self.ffiObject.incrementPointer("*TlsStream")
 	defer _self.ffiObject.decrementPointer()
 	res, err := uniffiRustCallAsync[SocketError](
@@ -1560,40 +1566,14 @@ func (_self *TlsStream) Recv(timeoutSecs uint64) ([]byte, *SocketError) {
 		},
 	)
 
+	if err == nil {
+		return res, nil
+	}
+
 	return res, err
 }
 
-// Recv は内部 panic をキャッチして *StreamError で返すラッパーです
-func (_self *TlsStream) RecvSafe(timeoutSecs uint64) (data []byte, serr error) {
-	defer func() {
-		if r := recover(); r != nil {
-			var e error
-			switch x := r.(type) {
-			case error:
-				e = x
-			default:
-				e = fmt.Errorf("%v", x)
-			}
-			// ここで「EOF」系はio.EOFで返す！
-			if e == io.EOF || e.Error() == "EOF" {
-				data, serr = nil, io.EOF
-			} else {
-				data, serr = nil, &SocketError{err: e}
-			}
-		}
-	}()
-	data, socketErr := _self.Recv(timeoutSecs)
-	if socketErr != nil {
-		return data, socketErr
-	}
-	if len(data) == 0 {
-		// 受信データ長が0 = EOF
-		return nil, io.EOF
-	}
-	return data, nil
-}
-
-func (_self *TlsStream) Send(buf []byte, timeoutSecs uint64) *SocketError {
+func (_self *TlsStream) Send(buf []byte, timeoutSecs uint64) error {
 	_pointer := _self.ffiObject.incrementPointer("*TlsStream")
 	defer _self.ffiObject.decrementPointer()
 	_, err := uniffiRustCallAsync[SocketError](
@@ -1616,6 +1596,10 @@ func (_self *TlsStream) Send(buf []byte, timeoutSecs uint64) *SocketError {
 			C.ffi_el_stack_rust_future_free_void(handle)
 		},
 	)
+
+	if err == nil {
+		return nil
+	}
 
 	return err
 }
@@ -1670,8 +1654,8 @@ func (_ FfiDestroyerTlsStream) Destroy(value *TlsStream) {
 
 type UdpSocketInterface interface {
 	LocalAddr() string
-	RecvFrom(timeoutSecs uint64) (RecvFromResult, *SocketError)
-	SendTo(buf []byte, target string, timeoutSecs uint64) (uint32, *SocketError)
+	RecvFrom(timeoutSecs uint64) (RecvFromResult, error)
+	SendTo(buf []byte, target string, timeoutSecs uint64) (uint32, error)
 }
 type UdpSocket struct {
 	ffiObject FfiObject
@@ -1688,7 +1672,7 @@ func (_self *UdpSocket) LocalAddr() string {
 	}))
 }
 
-func (_self *UdpSocket) RecvFrom(timeoutSecs uint64) (RecvFromResult, *SocketError) {
+func (_self *UdpSocket) RecvFrom(timeoutSecs uint64) (RecvFromResult, error) {
 	_pointer := _self.ffiObject.incrementPointer("*UdpSocket")
 	defer _self.ffiObject.decrementPointer()
 	res, err := uniffiRustCallAsync[SocketError](
@@ -1716,10 +1700,14 @@ func (_self *UdpSocket) RecvFrom(timeoutSecs uint64) (RecvFromResult, *SocketErr
 		},
 	)
 
+	if err == nil {
+		return res, nil
+	}
+
 	return res, err
 }
 
-func (_self *UdpSocket) SendTo(buf []byte, target string, timeoutSecs uint64) (uint32, *SocketError) {
+func (_self *UdpSocket) SendTo(buf []byte, target string, timeoutSecs uint64) (uint32, error) {
 	_pointer := _self.ffiObject.incrementPointer("*UdpSocket")
 	defer _self.ffiObject.decrementPointer()
 	res, err := uniffiRustCallAsync[SocketError](
@@ -1744,6 +1732,10 @@ func (_self *UdpSocket) SendTo(buf []byte, target string, timeoutSecs uint64) (u
 			C.ffi_el_stack_rust_future_free_u32(handle)
 		},
 	)
+
+	if err == nil {
+		return res, nil
+	}
 
 	return res, err
 }
@@ -1823,6 +1815,10 @@ func (c FfiConverterRecvFromResult) Read(reader io.Reader) RecvFromResult {
 
 func (c FfiConverterRecvFromResult) Lower(value RecvFromResult) C.RustBuffer {
 	return LowerIntoRustBuffer[RecvFromResult](c, value)
+}
+
+func (c FfiConverterRecvFromResult) LowerExternal(value RecvFromResult) ExternalCRustBuffer {
+	return RustBufferFromC(LowerIntoRustBuffer[RecvFromResult](c, value))
 }
 
 func (c FfiConverterRecvFromResult) Write(writer io.Writer, value RecvFromResult) {
@@ -2443,6 +2439,10 @@ func (c FfiConverterConnectionError) Lower(value *ConnectionError) C.RustBuffer 
 	return LowerIntoRustBuffer[*ConnectionError](c, value)
 }
 
+func (c FfiConverterConnectionError) LowerExternal(value *ConnectionError) ExternalCRustBuffer {
+	return RustBufferFromC(LowerIntoRustBuffer[*ConnectionError](c, value))
+}
+
 func (c FfiConverterConnectionError) Read(reader io.Reader) *ConnectionError {
 	errorID := readUint32(reader)
 
@@ -2655,6 +2655,7 @@ type ElStackVpnConnectionType uint
 const (
 	ElStackVpnConnectionTypeTls  ElStackVpnConnectionType = 1
 	ElStackVpnConnectionTypeQuic ElStackVpnConnectionType = 2
+	ElStackVpnConnectionTypeTcp  ElStackVpnConnectionType = 3
 )
 
 type FfiConverterElStackVpnConnectionType struct{}
@@ -2667,6 +2668,10 @@ func (c FfiConverterElStackVpnConnectionType) Lift(rb RustBufferI) ElStackVpnCon
 
 func (c FfiConverterElStackVpnConnectionType) Lower(value ElStackVpnConnectionType) C.RustBuffer {
 	return LowerIntoRustBuffer[ElStackVpnConnectionType](c, value)
+}
+
+func (c FfiConverterElStackVpnConnectionType) LowerExternal(value ElStackVpnConnectionType) ExternalCRustBuffer {
+	return RustBufferFromC(LowerIntoRustBuffer[ElStackVpnConnectionType](c, value))
 }
 func (FfiConverterElStackVpnConnectionType) Read(reader io.Reader) ElStackVpnConnectionType {
 	id := readInt32(reader)
@@ -2705,28 +2710,28 @@ func (err SocketError) Unwrap() error {
 }
 
 // Err* are used for checking error type with `errors.Is`
-var ErrSocketErrorNameResolvError = errors.New("SocketError: NameResolvError")
-var ErrSocketErrorAddressConvertError = errors.New("SocketError: AddressConvertError")
-var ErrSocketErrorInvalidHostnameError = errors.New("SocketError: InvalidHostnameError")
-var ErrSocketErrorTcpConnectError = errors.New("SocketError: TcpConnectError")
-var ErrSocketErrorTcpConnectTimeout = errors.New("SocketError: TcpConnectTimeout")
-var ErrSocketErrorTcpBindError = errors.New("SocketError: TcpBindError")
-var ErrSocketErrorUdpBindError = errors.New("SocketError: UdpBindError")
-var ErrSocketErrorTlsHandshakeError = errors.New("SocketError: TlsHandshakeError")
-var ErrSocketErrorTlsHandshakeTimeout = errors.New("SocketError: TlsHandshakeTimeout")
-var ErrSocketErrorQuicConnectError = errors.New("SocketError: QuicConnectError")
-var ErrSocketErrorTcpAcceptError = errors.New("SocketError: TcpAcceptError")
-var ErrSocketErrorTcpAcceptTimeout = errors.New("SocketError: TcpAcceptTimeout")
-var ErrSocketErrorAddressError = errors.New("SocketError: AddressError")
-var ErrSocketErrorConnectionClosed = errors.New("SocketError: ConnectionClosed")
-var ErrSocketErrorInvalidCertificateError = errors.New("SocketError: InvalidCertificateError")
-var ErrSocketErrorTlsError = errors.New("SocketError: TlsError")
-var ErrSocketErrorTcpRecvTimeout = errors.New("SocketError: TcpRecvTimeout")
-var ErrSocketErrorTcpSendTimeout = errors.New("SocketError: TcpSendTimeout")
-var ErrSocketErrorUdpRecvTimeout = errors.New("SocketError: UdpRecvTimeout")
-var ErrSocketErrorUdpSendTimeout = errors.New("SocketError: UdpSendTimeout")
-var ErrSocketErrorOther = errors.New("SocketError: Other")
-var ErrSocketErrorNotInitializedError = errors.New("SocketError: NotInitializedError")
+var ErrSocketErrorNameResolvError = fmt.Errorf("SocketErrorNameResolvError")
+var ErrSocketErrorAddressConvertError = fmt.Errorf("SocketErrorAddressConvertError")
+var ErrSocketErrorInvalidHostnameError = fmt.Errorf("SocketErrorInvalidHostnameError")
+var ErrSocketErrorTcpConnectError = fmt.Errorf("SocketErrorTcpConnectError")
+var ErrSocketErrorTcpConnectTimeout = fmt.Errorf("SocketErrorTcpConnectTimeout")
+var ErrSocketErrorTcpBindError = fmt.Errorf("SocketErrorTcpBindError")
+var ErrSocketErrorUdpBindError = fmt.Errorf("SocketErrorUdpBindError")
+var ErrSocketErrorTlsHandshakeError = fmt.Errorf("SocketErrorTlsHandshakeError")
+var ErrSocketErrorTlsHandshakeTimeout = fmt.Errorf("SocketErrorTlsHandshakeTimeout")
+var ErrSocketErrorQuicConnectError = fmt.Errorf("SocketErrorQuicConnectError")
+var ErrSocketErrorTcpAcceptError = fmt.Errorf("SocketErrorTcpAcceptError")
+var ErrSocketErrorTcpAcceptTimeout = fmt.Errorf("SocketErrorTcpAcceptTimeout")
+var ErrSocketErrorAddressError = fmt.Errorf("SocketErrorAddressError")
+var ErrSocketErrorConnectionClosed = fmt.Errorf("SocketErrorConnectionClosed")
+var ErrSocketErrorInvalidCertificateError = fmt.Errorf("SocketErrorInvalidCertificateError")
+var ErrSocketErrorTlsError = fmt.Errorf("SocketErrorTlsError")
+var ErrSocketErrorTcpRecvTimeout = fmt.Errorf("SocketErrorTcpRecvTimeout")
+var ErrSocketErrorTcpSendTimeout = fmt.Errorf("SocketErrorTcpSendTimeout")
+var ErrSocketErrorUdpRecvTimeout = fmt.Errorf("SocketErrorUdpRecvTimeout")
+var ErrSocketErrorUdpSendTimeout = fmt.Errorf("SocketErrorUdpSendTimeout")
+var ErrSocketErrorOther = fmt.Errorf("SocketErrorOther")
+var ErrSocketErrorNotInitializedError = fmt.Errorf("SocketErrorNotInitializedError")
 
 // Variant structs
 type SocketErrorNameResolvError struct {
@@ -3137,6 +3142,10 @@ func (c FfiConverterSocketError) Lower(value *SocketError) C.RustBuffer {
 	return LowerIntoRustBuffer[*SocketError](c, value)
 }
 
+func (c FfiConverterSocketError) LowerExternal(value *SocketError) ExternalCRustBuffer {
+	return RustBufferFromC(LowerIntoRustBuffer[*SocketError](c, value))
+}
+
 func (c FfiConverterSocketError) Read(reader io.Reader) *SocketError {
 	errorID := readUint32(reader)
 
@@ -3314,6 +3323,10 @@ func (c FfiConverterVpnStatus) Lift(rb RustBufferI) VpnStatus {
 
 func (c FfiConverterVpnStatus) Lower(value VpnStatus) C.RustBuffer {
 	return LowerIntoRustBuffer[VpnStatus](c, value)
+}
+
+func (c FfiConverterVpnStatus) LowerExternal(value VpnStatus) ExternalCRustBuffer {
+	return RustBufferFromC(LowerIntoRustBuffer[VpnStatus](c, value))
 }
 func (FfiConverterVpnStatus) Read(reader io.Reader) VpnStatus {
 	id := readInt32(reader)
@@ -3677,6 +3690,10 @@ func (c FfiConverterOptionalUint64) Lower(value *uint64) C.RustBuffer {
 	return LowerIntoRustBuffer[*uint64](c, value)
 }
 
+func (c FfiConverterOptionalUint64) LowerExternal(value *uint64) ExternalCRustBuffer {
+	return RustBufferFromC(LowerIntoRustBuffer[*uint64](c, value))
+}
+
 func (_ FfiConverterOptionalUint64) Write(writer io.Writer, value *uint64) {
 	if value == nil {
 		writeInt8(writer, 0)
@@ -3712,6 +3729,10 @@ func (_ FfiConverterOptionalString) Read(reader io.Reader) *string {
 
 func (c FfiConverterOptionalString) Lower(value *string) C.RustBuffer {
 	return LowerIntoRustBuffer[*string](c, value)
+}
+
+func (c FfiConverterOptionalString) LowerExternal(value *string) ExternalCRustBuffer {
+	return RustBufferFromC(LowerIntoRustBuffer[*string](c, value))
 }
 
 func (_ FfiConverterOptionalString) Write(writer io.Writer, value *string) {
@@ -3753,6 +3774,10 @@ func (c FfiConverterSequenceString) Read(reader io.Reader) []string {
 
 func (c FfiConverterSequenceString) Lower(value []string) C.RustBuffer {
 	return LowerIntoRustBuffer[[]string](c, value)
+}
+
+func (c FfiConverterSequenceString) LowerExternal(value []string) ExternalCRustBuffer {
+	return RustBufferFromC(LowerIntoRustBuffer[[]string](c, value))
 }
 
 func (c FfiConverterSequenceString) Write(writer io.Writer, value []string) {
@@ -3851,7 +3876,7 @@ func Restart() {
 	})
 }
 
-func Start(vpnDelegate ElStackVpnEventDelegate, vpnConfig *ElStackVpnConfig, vcConfig *ElStackVcConfig, capturePath *string) *ConnectionError {
+func Start(vpnDelegate ElStackVpnEventDelegate, vpnConfig *ElStackVpnConfig, vcConfig *ElStackVcConfig, capturePath *string) error {
 	_, err := uniffiRustCallAsync[ConnectionError](
 		FfiConverterConnectionErrorINSTANCE,
 		// completeFn
@@ -3872,6 +3897,10 @@ func Start(vpnDelegate ElStackVpnEventDelegate, vpnConfig *ElStackVpnConfig, vcC
 		},
 	)
 
+	if err == nil {
+		return nil
+	}
+
 	return err
 }
 
@@ -3883,7 +3912,7 @@ func Stop() {
 }
 
 // TCPのbind(for tcp server)
-func TcpBind(bindAddr string) (*TcpListener, *SocketError) {
+func TcpBind(bindAddr string) (*TcpListener, error) {
 	res, err := uniffiRustCallAsync[SocketError](
 		FfiConverterSocketErrorINSTANCE,
 		// completeFn
@@ -3906,11 +3935,15 @@ func TcpBind(bindAddr string) (*TcpListener, *SocketError) {
 		},
 	)
 
+	if err == nil {
+		return res, nil
+	}
+
 	return res, err
 }
 
 // TCPの接続(for tcp client)
-func TcpConnect(host string, serv string, timeoutInterval uint64) (*TcpStream, *SocketError) {
+func TcpConnect(host string, serv string, timeoutInterval uint64) (*TcpStream, error) {
 	res, err := uniffiRustCallAsync[SocketError](
 		FfiConverterSocketErrorINSTANCE,
 		// completeFn
@@ -3933,11 +3966,15 @@ func TcpConnect(host string, serv string, timeoutInterval uint64) (*TcpStream, *
 		},
 	)
 
+	if err == nil {
+		return res, nil
+	}
+
 	return res, err
 }
 
 // TLSの接続
-func TlsConnect(host string, serv string, timeoutInterval uint64) (*TlsStream, *SocketError) {
+func TlsConnect(host string, serv string, timeoutInterval uint64) (*TlsStream, error) {
 	res, err := uniffiRustCallAsync[SocketError](
 		FfiConverterSocketErrorINSTANCE,
 		// completeFn
@@ -3960,11 +3997,15 @@ func TlsConnect(host string, serv string, timeoutInterval uint64) (*TlsStream, *
 		},
 	)
 
+	if err == nil {
+		return res, nil
+	}
+
 	return res, err
 }
 
 // UDPのbind(for udp server/client)
-func UdpBind(bindAddr string) (*UdpSocket, *SocketError) {
+func UdpBind(bindAddr string) (*UdpSocket, error) {
 	res, err := uniffiRustCallAsync[SocketError](
 		FfiConverterSocketErrorINSTANCE,
 		// completeFn
@@ -3987,536 +4028,9 @@ func UdpBind(bindAddr string) (*UdpSocket, *SocketError) {
 		},
 	)
 
-	return res, err
-}
-
-// ElStackTcpConn は el_stack の Stream を net.Conn インターフェイスで扱うブリッジです。
-// ======================= TCP =======================
-
-type ElStackTcpConn struct {
-	stream  *TcpStream
-	network string
-
-	localAddr  *net.TCPAddr
-	remoteAddr *net.TCPAddr
-
-	// 受信系
-	readMu  sync.Mutex
-	readBuf []byte
-	closed  atomic.Bool
-
-	// 送信直列化
-	sendMu sync.Mutex
-
-	// 締切
-	readDeadline  time.Time
-	writeDeadline time.Time
-	deadline      time.Time
-}
-
-func resolveTCPAddrOrZero(network, addr string) *net.TCPAddr {
-	if network == "" {
-		network = "tcp"
-	}
-	tcpAddr, err := net.ResolveTCPAddr(network, addr)
-	if err != nil {
-		return &net.TCPAddr{}
-	}
-	return tcpAddr
-}
-
-func resolveUDPAddrOrZero(network, addr string) *net.UDPAddr {
-	if network == "" {
-		network = "udp"
-	}
-	udpAddr, err := net.ResolveUDPAddr(network, addr)
-	if err != nil {
-		return &net.UDPAddr{}
-	}
-	return udpAddr
-}
-
-func newElStackTcpConnFromStream(stream *TcpStream, network string) *ElStackTcpConn {
-	return &ElStackTcpConn{
-		stream:     stream,
-		network:    network,
-		localAddr:  resolveTCPAddrOrZero(network, stream.LocalAddr()),
-		remoteAddr: resolveTCPAddrOrZero(network, stream.PeerAddr()),
-	}
-}
-
-func isSupportedTcpNetwork(network string) bool {
-	switch network {
-	case "tcp", "tcp4", "tcp6":
-		return true
-	default:
-		return false
-	}
-}
-
-// NewElStackTcpConn は net.Dial と同じ引数を受け取り、TcpConnect を通じて net.Conn 互換の接続を生成します。
-func NewElStackTcpConn(network, address string, timeout time.Duration) (net.Conn, error) {
-	if !isSupportedTcpNetwork(network) {
-		return nil, fmt.Errorf("unsupported network: %s", network)
-	}
-
-	host, port, err := net.SplitHostPort(address)
-	if err != nil {
-		return nil, err
-	}
-	if host == "" {
-		switch network {
-		case "tcp6":
-			host = "::1"
-		case "tcp4":
-			host = "127.0.0.1"
-		default:
-			host = "localhost"
-		}
-	}
-	dialAddr := opAddr(network, net.JoinHostPort(host, port))
-
-	stream, serr := TcpConnect(host, port, uint64(timeout.Seconds()))
-	if serr != nil {
-		return nil, mapSocketErrorToNetError("dial", network, nil, dialAddr, serr)
-	}
-
-	return newElStackTcpConnFromStream(stream, network), nil
-}
-
-type ElStackTcpListener struct {
-	listener *TcpListener
-	network  string
-	addr     *net.TCPAddr
-	closed   atomic.Bool
-}
-
-// NewElStackTcpListener は net.Listen と同じインターフェイスで TCP リスナーを生成します。
-func NewElStackTcpListener(network, address string) (net.Listener, error) {
-	if !isSupportedTcpNetwork(network) {
-		return nil, fmt.Errorf("unsupported network: %s", network)
-	}
-
-	listener, serr := TcpBind(address)
-	if serr != nil {
-		return nil, mapSocketErrorToNetError("listen", network, nil, opAddr(network, address), serr)
-	}
-
-	return &ElStackTcpListener{
-		listener: listener,
-		network:  network,
-		addr:     resolveTCPAddrOrZero(network, listener.BindAddr()),
-	}, nil
-}
-
-func (l *ElStackTcpListener) Accept() (net.Conn, error) {
-	for {
-		if l.closed.Load() {
-			return nil, net.ErrClosed
-		}
-
-		stream, err := l.listener.Accept(0)
-		if err != nil {
-			return nil, mapSocketErrorToNetError("accept", l.network, nil, l.addr, err)
-		}
-
-		return newElStackTcpConnFromStream(stream, l.network), nil
-	}
-}
-
-func (l *ElStackTcpListener) Close() error {
-	if l.closed.Swap(true) {
-		return net.ErrClosed
-	}
-	l.listener.Destroy()
-	return nil
-}
-
-func (l *ElStackTcpListener) Addr() net.Addr {
-	return l.addr
-}
-
-// -------- helpers: deadline -> seconds ----------
-func ceilSeconds(d time.Duration) uint64 {
-	if d <= 0 {
-		return 0
-	}
-	// 秒に切り上げ（1nsでも残っていれば1秒）
-	return uint64((d + time.Second - 1) / time.Second)
-}
-
-func (c *ElStackTcpConn) recvTimeoutSecsFromDeadline() uint64 {
-	if c.readDeadline.IsZero() {
-		return 0
-	}
-	return ceilSeconds(time.Until(c.readDeadline))
-}
-
-func (c *ElStackTcpConn) sendTimeoutSecsFromDeadline() uint64 {
-	if c.writeDeadline.IsZero() {
-		return 0
-	}
-	return ceilSeconds(time.Until(c.writeDeadline))
-}
-
-func (c *ElStackTcpConn) Read(b []byte) (int, error) {
-	if c.closed.Load() {
-		return 0, net.ErrClosed
-	}
-	if len(b) == 0 {
-		return 0, nil
-	}
-
-	c.readMu.Lock()
-	defer c.readMu.Unlock()
-
-	// 余りがあれば先に返す
-	if len(c.readBuf) > 0 {
-		n := copy(b, c.readBuf)
-		c.readBuf = c.readBuf[n:]
-		return n, nil
-	}
-
-	// 期限切れ即時判定
-	if !c.readDeadline.IsZero() && time.Until(c.readDeadline) <= 0 {
-		return 0, os.ErrDeadlineExceeded
-	}
-
-	timeoutSecs := c.recvTimeoutSecsFromDeadline()
-	pkt, err := c.stream.RecvSafe(timeoutSecs)
-	if err != nil {
-		return 0, mapSocketReadErrorToNetError(c.closed.Load(), c.network, c.localAddr, c.remoteAddr, err)
-	}
-
-	// b に入るだけ入れて、余りは readBuf へ
-	if len(pkt) <= len(b) {
-		n := copy(b, pkt)
-		return n, nil
-	}
-
-	n := copy(b, pkt[:len(b)])
-	c.readBuf = append(c.readBuf[:0], pkt[n:]...)
-	return n, nil
-}
-
-func (c *ElStackTcpConn) Write(b []byte) (int, error) {
-	if c.closed.Load() {
-		return 0, net.ErrClosed
-	}
-	c.sendMu.Lock()
-	defer c.sendMu.Unlock()
-
-	// 期限切れ即時判定
-	if !c.writeDeadline.IsZero() && time.Until(c.writeDeadline) <= 0 {
-		return 0, os.ErrDeadlineExceeded
-	}
-
-	// 期限から秒（切り上げ）に変換し、Rust 側に渡す
-	timeoutSecs := c.sendTimeoutSecsFromDeadline()
-	p := append([]byte(nil), b...) // 念のためコピー
-	if err := c.stream.Send(p, timeoutSecs); isNilError(err) {
-		return len(b), nil
-	} else {
-		return 0, mapSocketErrorToNetError("write", c.network, c.localAddr, c.remoteAddr, err)
-	}
-}
-
-func (c *ElStackTcpConn) Close() error {
-	if c.closed.Swap(true) {
-		return net.ErrClosed
-	}
-	// Rust側 close（Destroy で ARC 解放・Close 呼び出しは Rust 実装に合わせる）
-	c.stream.Close()
-	c.stream.Destroy()
-	return nil
-}
-
-func (c *ElStackTcpConn) LocalAddr() net.Addr {
-	return c.localAddr
-}
-
-func (c *ElStackTcpConn) RemoteAddr() net.Addr {
-	return c.remoteAddr
-}
-
-func (c *ElStackTcpConn) SetDeadline(t time.Time) error {
-	c.deadline = t
-	c.readDeadline = t
-	c.writeDeadline = t
-	return nil
-}
-
-func (c *ElStackTcpConn) SetReadDeadline(t time.Time) error {
-	c.readDeadline = t
-	return nil
-}
-
-func (c *ElStackTcpConn) SetWriteDeadline(t time.Time) error {
-	c.writeDeadline = t
-	return nil
-}
-
-// ======================= UDP =======================
-
-type ElStackUdpConn struct {
-	sock *UdpSocket
-
-	network   string
-	localAddr *net.UDPAddr
-	closed    bool
-
-	// 送信直列化
-	sendMu sync.Mutex
-
-	// 締切
-	readDeadline  time.Time
-	writeDeadline time.Time
-	deadline      time.Time
-}
-
-func isSupportedUdpNetwork(network string) bool {
-	switch network {
-	case "udp", "udp4", "udp6":
-		return true
-	default:
-		return false
-	}
-}
-
-// NewElStackUdpConn は net.ListenUDP と同様の引数を受け取り、UdpBind を通じて UDP ソケットを生成します。
-func NewElStackUdpConn(network string, laddr *net.UDPAddr) (*ElStackUdpConn, error) {
-	if !isSupportedUdpNetwork(network) {
-		return nil, fmt.Errorf("unsupported network: %s", network)
-	}
-
-	bindAddr := ""
-	if laddr == nil {
-		switch network {
-		case "udp6":
-			bindAddr = "[::]:0"
-		default:
-			bindAddr = "0.0.0.0:0"
-		}
-	} else {
-		bindAddr = laddr.String()
-	}
-
-	sock, serr := UdpBind(bindAddr)
-	if serr != nil {
-		return nil, mapSocketErrorToNetError("listen", network, nil, opAddr(network, bindAddr), serr)
-	}
-
-	return &ElStackUdpConn{
-		sock:      sock,
-		network:   network,
-		localAddr: resolveUDPAddrOrZero(network, sock.LocalAddr()),
-	}, nil
-}
-
-func toElStackAddr(addr *net.UDPAddr) string {
-	if addr == nil {
-		return ""
-	}
-	return addr.String()
-}
-
-func (c *ElStackUdpConn) ReadFromUDP(b []byte) (int, *net.UDPAddr, error) {
-	if c.closed {
-		return 0, nil, net.ErrClosed
-	}
-	// 期限切れ即時判定
-	if !c.readDeadline.IsZero() && time.Until(c.readDeadline) <= 0 {
-		return 0, nil, os.ErrDeadlineExceeded
-	}
-	// 期限から秒（切り上げ）に変換し、Rust 側に渡す
-	timeoutSecs := ceilSeconds(time.Until(c.readDeadline))
-	ret, err := c.sock.RecvFrom(timeoutSecs) // Rust 側で timeout 秒を処理
-	if err != nil {
-		return 0, nil, mapSocketErrorToNetError("read", c.network, c.localAddr, nil, err)
-	}
-	n := copy(b, ret.Buf)
-	udpAddr, err2 := net.ResolveUDPAddr("udp", ret.FromAddr)
-	if err2 != nil {
-		return 0, nil, err2
-	}
-	return n, udpAddr, nil
-}
-
-func (c *ElStackUdpConn) ReadFromUDPAddrPort(b []byte) (n int, addr netip.AddrPort, err error) {
-	n, udpAddr, err := c.ReadFromUDP(b)
-	if err != nil {
-		return 0, netip.AddrPort{}, err
-	}
-	return n, udpAddr.AddrPort(), nil
-}
-
-func (c *ElStackUdpConn) WriteToUDP(b []byte, addr *net.UDPAddr) (int, error) {
-	if c.closed {
-		return 0, net.ErrClosed
-	}
-	c.sendMu.Lock()
-	defer c.sendMu.Unlock()
-
-	// 期限切れ即時判定
-	if !c.writeDeadline.IsZero() && time.Until(c.writeDeadline) <= 0 {
-		return 0, os.ErrDeadlineExceeded
-	}
-
-	timeoutSecs := ceilSeconds(time.Until(c.writeDeadline))
-	rawAddr := toElStackAddr(addr)
-	n, err := c.sock.SendTo(b, rawAddr, timeoutSecs)
-	if err != nil {
-		return 0, mapSocketErrorToNetError("write", c.network, c.localAddr, addr, err)
-	}
-	return int(n), nil
-}
-
-func (c *ElStackUdpConn) WriteToUDPAddrPort(b []byte, addr netip.AddrPort) (int, error) {
-	return c.WriteToUDP(b, net.UDPAddrFromAddrPort(addr))
-}
-
-func (c *ElStackUdpConn) Close() error {
-	if c.closed {
-		return net.ErrClosed
-	}
-	c.closed = true
-	c.sock.Destroy()
-	return nil
-}
-
-func (c *ElStackUdpConn) LocalAddr() net.Addr {
-	return c.localAddr
-}
-
-func (c *ElStackUdpConn) SetDeadline(t time.Time) error {
-	c.deadline = t
-	c.readDeadline = t
-	c.writeDeadline = t
-	return nil
-}
-
-func (c *ElStackUdpConn) SetReadDeadline(t time.Time) error {
-	c.readDeadline = t
-	return nil
-}
-
-func (c *ElStackUdpConn) SetWriteDeadline(t time.Time) error {
-	c.writeDeadline = t
-	return nil
-}
-
-// 型付き nil (e.g. *SomeError(nil)) を正しく判定するためのヘルパ
-func isNilError(err error) bool {
 	if err == nil {
-		return true
-	}
-	v := reflect.ValueOf(err)
-	return v.Kind() == reflect.Ptr && v.IsNil()
-}
-
-type stringNetAddr struct {
-	network string
-	address string
-}
-
-func (a stringNetAddr) Network() string {
-	return a.network
-}
-
-func (a stringNetAddr) String() string {
-	return a.address
-}
-
-func normalizeNetAddr(addr net.Addr) net.Addr {
-	if addr == nil {
-		return nil
-	}
-	v := reflect.ValueOf(addr)
-	if v.Kind() == reflect.Ptr && v.IsNil() {
-		return nil
-	}
-	return addr
-}
-
-func netAddrString(addr net.Addr) string {
-	addr = normalizeNetAddr(addr)
-	if addr == nil {
-		return ""
-	}
-	return addr.String()
-}
-
-func opAddr(network, address string) net.Addr {
-	if address == "" {
-		return nil
-	}
-	return stringNetAddr{network: network, address: address}
-}
-
-func mapSocketReadErrorToNetError(closed bool, network string, sourceAddr, addr net.Addr, err error) error {
-	if isNilError(err) {
-		return nil
-	}
-	if err == io.EOF {
-		return io.EOF
-	}
-	if errors.Is(err, ErrSocketErrorConnectionClosed) && !closed {
-		return io.EOF
-	}
-	return mapSocketErrorToNetError("read", network, sourceAddr, addr, err)
-}
-
-// Rust側の SocketError 群を Go の net 互換エラーにマップ
-func mapSocketErrorToNetError(op, network string, sourceAddr, addr net.Addr, err error) error {
-	if isNilError(err) {
-		return nil
-	}
-	sourceAddr = normalizeNetAddr(sourceAddr)
-	addr = normalizeNetAddr(addr)
-
-	mkOpErr := func(inner error) error {
-		return &net.OpError{
-			Op:     op,
-			Net:    network,
-			Source: sourceAddr,
-			Addr:   addr,
-			Err:    inner,
-		}
+		return res, nil
 	}
 
-	addrText := netAddrString(addr)
-	if addrText == "" {
-		addrText = netAddrString(sourceAddr)
-	}
-	dnsName := addrText
-	if host, _, splitErr := net.SplitHostPort(dnsName); splitErr == nil {
-		dnsName = host
-	}
-
-	switch {
-	case errors.Is(err, ErrSocketErrorConnectionClosed):
-		return net.ErrClosed
-	case errors.Is(err, ErrSocketErrorTcpConnectTimeout),
-		errors.Is(err, ErrSocketErrorTlsHandshakeTimeout),
-		errors.Is(err, ErrSocketErrorTcpAcceptTimeout),
-		errors.Is(err, ErrSocketErrorTcpRecvTimeout),
-		errors.Is(err, ErrSocketErrorTcpSendTimeout),
-		errors.Is(err, ErrSocketErrorUdpRecvTimeout),
-		errors.Is(err, ErrSocketErrorUdpSendTimeout):
-		return mkOpErr(os.ErrDeadlineExceeded)
-	case errors.Is(err, ErrSocketErrorAddressConvertError),
-		errors.Is(err, ErrSocketErrorInvalidHostnameError),
-		errors.Is(err, ErrSocketErrorAddressError):
-		return mkOpErr(&net.AddrError{
-			Err:  "invalid address",
-			Addr: addrText,
-		})
-	case errors.Is(err, ErrSocketErrorNameResolvError):
-		return mkOpErr(&net.DNSError{
-			Err:  "name resolution failed",
-			Name: dnsName,
-		})
-	default:
-		return mkOpErr(err)
-	}
+	return res, err
 }
