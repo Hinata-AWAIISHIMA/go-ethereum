@@ -166,14 +166,14 @@ func SetupEL(cfg *ELConfig, results chan LinkedResult, quit <-chan struct{}) {
 	vpnCfg := el_stack.NewElStackVpnConfig(
 		vpnHost, vpnPort, antiOverlap,
 		vpnTimeoutSec, vpnKeepAliveSec,
-		el_stack.ElStackVpnConnectionTypeTcp,
+		el_stack.ElStackVpnConnectionTypeQuic,
 	)
 
 	productName := "go-ethereum-el"
 	productVersion := "0.1.0"
 	productPlatform := "Linux"
 
-	prodCfg := el_stack.NewElStackProductConfig(productName, productVersion, productPlatform, cfg.ServerCACert, 1280)
+	prodCfg := el_stack.NewElStackProductConfig(productName, productVersion, productPlatform, cfg.ServerCACert)
 
 	// default:
 	// tcpBuffSize := uint64(16384)
@@ -182,22 +182,25 @@ func SetupEL(cfg *ELConfig, results chan LinkedResult, quit <-chan struct{}) {
 	// buffCfg := el_stack.NewElStackSocketBufferConfig(1024, nil, nil, nil)
 	// todo: reserch to default android default tcp/udp buffer statuses
 	// AndroidOS:
-	tcpBuffSize := uint64(131072)
-	udpBuffSize := uint64(212992)
-	udpMetaSize := uint64(32)
+	// tcpBuffSize := uint64(131072)
+	// udpBuffSize := uint64(212992)
+	// udpMetaSize := uint64(32)
 	// iOS:
 	// tcpBuffSize := uint64(65536)
 	// udpBuffSize := uint64(65536)
 	// udpMetaSize := uint64(32)
-	maxBurstSize := uint64(1024)
+	// maxBurstSize := uint64(1024)
 	// tcpBuffSize := uint64(65536)
 	// udpBuffSize := uint64(65536)
 	// udpMetaSize := uint64(2048)
-	buffCfg := el_stack.NewElStackSocketBufferConfig(maxBurstSize, &tcpBuffSize, &udpBuffSize, &udpMetaSize)
-
-	el_stack.Initialize(prodCfg, buffCfg)
-
+	// NewElStackSocketBufferConfig was deleted from el_stack.go on feature-change-tcpip
+	// buffCfg := el_stack.NewElStackSocketBufferConfig(maxBurstSize, &tcpBuffSize, &udpBuffSize, &udpMetaSize)
+	
 	vcCfg := el_stack.NewElStackVcConfig(vc, vcPrivKey, issuerPubkey)
+	runtimeCfg := el_stack.NewDefaultElStackRuntimeConfig()
+
+	// el_stack.Initialize(prodCfg, buffCfg)
+	el_stack.Initialize(prodCfg, runtimeCfg)
 
 	delegate := &VpnDelegate{results: resultStream}
 

@@ -5,7 +5,7 @@ package el_stack
 // #cgo ios,arm64 LDFLAGS: ${SRCDIR}/libs/ios_arm64/libel_stack.a -lm
 // #cgo iossimulator,arm64 LDFLAGS: ${SRCDIR}/libs/iossimulator_arm64/libel_stack.a -lm
 // #cgo darwin,arm64 LDFLAGS: ${SRCDIR}/libs/darwin_arm64/libel_stack.a -lm -framework SystemConfiguration -framework CoreFoundation
-// #cgo android,arm64 LDFLAGS: ${SRCDIR}/libs/android_arm64/libel_stack_tcp.a -lm -llog
+// #cgo android,arm64 LDFLAGS: ${SRCDIR}/libs/android_arm64/libel_stack_original.a -lm
 // #cgo !android,linux,amd64 LDFLAGS: ${SRCDIR}/libs/linux_amd64/libel_stack.a -lm
 // #cgo !android,linux,arm64 LDFLAGS: ${SRCDIR}/libs/linux_arm64/libel_stack.a -lm
 // #include <el_stack.h>
@@ -40,29 +40,7 @@ type RustBufferI interface {
 	Capacity() uint64
 }
 
-// C.RustBuffer fields exposed as an interface so they can be accessed in different Go packages.
-// See https://github.com/golang/go/issues/13467
-type ExternalCRustBuffer interface {
-	Data() unsafe.Pointer
-	Len() uint64
-	Capacity() uint64
-}
-
-func RustBufferFromC(b C.RustBuffer) ExternalCRustBuffer {
-	return GoRustBuffer{
-		inner: b,
-	}
-}
-
-func CFromRustBuffer(b ExternalCRustBuffer) C.RustBuffer {
-	return C.RustBuffer{
-		capacity: C.uint64_t(b.Capacity()),
-		len:      C.uint64_t(b.Len()),
-		data:     (*C.uchar)(b.Data()),
-	}
-}
-
-func RustBufferFromExternal(b ExternalCRustBuffer) GoRustBuffer {
+func RustBufferFromExternal(b RustBufferI) GoRustBuffer {
 	return GoRustBuffer{
 		inner: C.RustBuffer{
 			capacity: C.uint64_t(b.Capacity()),
@@ -371,7 +349,7 @@ func init() {
 
 func uniffiCheckChecksums() {
 	// Get the bindings contract version from our ComponentInterface
-	bindingsContractVersion := 29
+	bindingsContractVersion := 26
 	// Get the scaffolding contract version by calling the into the dylib
 	scaffoldingContractVersion := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint32_t {
 		return C.ffi_el_stack_uniffi_contract_version()
@@ -384,7 +362,7 @@ func uniffiCheckChecksums() {
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_el_stack_checksum_func_initialize()
 		})
-		if checksum != 5191 {
+		if checksum != 2024 {
 			// If this happens try cleaning and rebuilding your project
 			panic("el_stack: uniffi_el_stack_checksum_func_initialize: UniFFI API checksum mismatch")
 		}
@@ -589,6 +567,24 @@ func uniffiCheckChecksums() {
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_el_stack_checksum_constructor_elstackbufferpoolconfig_new()
+		})
+		if checksum != 48473 {
+			// If this happens try cleaning and rebuilding your project
+			panic("el_stack: uniffi_el_stack_checksum_constructor_elstackbufferpoolconfig_new: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_el_stack_checksum_constructor_elstackbufferpoolconfig_new_default()
+		})
+		if checksum != 34893 {
+			// If this happens try cleaning and rebuilding your project
+			panic("el_stack: uniffi_el_stack_checksum_constructor_elstackbufferpoolconfig_new_default: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_el_stack_checksum_constructor_elstackissueconfig_new()
 		})
 		if checksum != 52850 {
@@ -598,20 +594,65 @@ func uniffiCheckChecksums() {
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_el_stack_checksum_constructor_elstacknicconfig_new()
+		})
+		if checksum != 61799 {
+			// If this happens try cleaning and rebuilding your project
+			panic("el_stack: uniffi_el_stack_checksum_constructor_elstacknicconfig_new: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_el_stack_checksum_constructor_elstacknicconfig_new_default()
+		})
+		if checksum != 18882 {
+			// If this happens try cleaning and rebuilding your project
+			panic("el_stack: uniffi_el_stack_checksum_constructor_elstacknicconfig_new_default: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_el_stack_checksum_constructor_elstackproductconfig_new()
 		})
-		if checksum != 20203 {
+		if checksum != 53644 {
 			// If this happens try cleaning and rebuilding your project
 			panic("el_stack: uniffi_el_stack_checksum_constructor_elstackproductconfig_new: UniFFI API checksum mismatch")
 		}
 	}
 	{
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
-			return C.uniffi_el_stack_checksum_constructor_elstacksocketbufferconfig_new()
+			return C.uniffi_el_stack_checksum_constructor_elstackruntimeconfig_new()
 		})
-		if checksum != 34062 {
+		if checksum != 28668 {
 			// If this happens try cleaning and rebuilding your project
-			panic("el_stack: uniffi_el_stack_checksum_constructor_elstacksocketbufferconfig_new: UniFFI API checksum mismatch")
+			panic("el_stack: uniffi_el_stack_checksum_constructor_elstackruntimeconfig_new: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_el_stack_checksum_constructor_elstackruntimeconfig_new_default()
+		})
+		if checksum != 18192 {
+			// If this happens try cleaning and rebuilding your project
+			panic("el_stack: uniffi_el_stack_checksum_constructor_elstackruntimeconfig_new_default: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_el_stack_checksum_constructor_elstackstackconfig_new()
+		})
+		if checksum != 12445 {
+			// If this happens try cleaning and rebuilding your project
+			panic("el_stack: uniffi_el_stack_checksum_constructor_elstackstackconfig_new: UniFFI API checksum mismatch")
+		}
+	}
+	{
+		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
+			return C.uniffi_el_stack_checksum_constructor_elstackstackconfig_new_default()
+		})
+		if checksum != 32331 {
+			// If this happens try cleaning and rebuilding your project
+			panic("el_stack: uniffi_el_stack_checksum_constructor_elstackstackconfig_new_default: UniFFI API checksum mismatch")
 		}
 	}
 	{
@@ -754,7 +795,7 @@ func (FfiConverterString) Read(reader io.Reader) string {
 	length := readInt32(reader)
 	buffer := make([]byte, length)
 	read_length, err := reader.Read(buffer)
-	if err != nil && err != io.EOF {
+	if err != nil {
 		panic(err)
 	}
 	if read_length != int(length) {
@@ -765,10 +806,6 @@ func (FfiConverterString) Read(reader io.Reader) string {
 
 func (FfiConverterString) Lower(value string) C.RustBuffer {
 	return stringToRustBuffer(value)
-}
-
-func (c FfiConverterString) LowerExternal(value string) ExternalCRustBuffer {
-	return RustBufferFromC(stringToRustBuffer(value))
 }
 
 func (FfiConverterString) Write(writer io.Writer, value string) {
@@ -798,10 +835,6 @@ func (c FfiConverterBytes) Lower(value []byte) C.RustBuffer {
 	return LowerIntoRustBuffer[[]byte](c, value)
 }
 
-func (c FfiConverterBytes) LowerExternal(value []byte) ExternalCRustBuffer {
-	return RustBufferFromC(c.Lower(value))
-}
-
 func (c FfiConverterBytes) Write(writer io.Writer, value []byte) {
 	if len(value) > math.MaxInt32 {
 		panic("[]byte is too large to fit into Int32")
@@ -825,7 +858,7 @@ func (c FfiConverterBytes) Read(reader io.Reader) []byte {
 	length := readInt32(reader)
 	buffer := make([]byte, length)
 	read_length, err := reader.Read(buffer)
-	if err != nil && err != io.EOF {
+	if err != nil {
 		panic(err)
 	}
 	if read_length != int(length) {
@@ -901,6 +934,73 @@ func (ffiObject *FfiObject) freeRustArcPtr() {
 	})
 }
 
+type ElStackBufferPoolConfigInterface interface {
+}
+type ElStackBufferPoolConfig struct {
+	ffiObject FfiObject
+}
+
+func NewElStackBufferPoolConfig(buffers uint64, bufferLen uint64) *ElStackBufferPoolConfig {
+	return FfiConverterElStackBufferPoolConfigINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
+		return C.uniffi_el_stack_fn_constructor_elstackbufferpoolconfig_new(FfiConverterUint64INSTANCE.Lower(buffers), FfiConverterUint64INSTANCE.Lower(bufferLen), _uniffiStatus)
+	}))
+}
+
+func ElStackBufferPoolConfigNewDefault() *ElStackBufferPoolConfig {
+	return FfiConverterElStackBufferPoolConfigINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
+		return C.uniffi_el_stack_fn_constructor_elstackbufferpoolconfig_new_default(_uniffiStatus)
+	}))
+}
+
+func (object *ElStackBufferPoolConfig) Destroy() {
+	runtime.SetFinalizer(object, nil)
+	object.ffiObject.destroy()
+}
+
+type FfiConverterElStackBufferPoolConfig struct{}
+
+var FfiConverterElStackBufferPoolConfigINSTANCE = FfiConverterElStackBufferPoolConfig{}
+
+func (c FfiConverterElStackBufferPoolConfig) Lift(pointer unsafe.Pointer) *ElStackBufferPoolConfig {
+	result := &ElStackBufferPoolConfig{
+		newFfiObject(
+			pointer,
+			func(pointer unsafe.Pointer, status *C.RustCallStatus) unsafe.Pointer {
+				return C.uniffi_el_stack_fn_clone_elstackbufferpoolconfig(pointer, status)
+			},
+			func(pointer unsafe.Pointer, status *C.RustCallStatus) {
+				C.uniffi_el_stack_fn_free_elstackbufferpoolconfig(pointer, status)
+			},
+		),
+	}
+	runtime.SetFinalizer(result, (*ElStackBufferPoolConfig).Destroy)
+	return result
+}
+
+func (c FfiConverterElStackBufferPoolConfig) Read(reader io.Reader) *ElStackBufferPoolConfig {
+	return c.Lift(unsafe.Pointer(uintptr(readUint64(reader))))
+}
+
+func (c FfiConverterElStackBufferPoolConfig) Lower(value *ElStackBufferPoolConfig) unsafe.Pointer {
+	// TODO: this is bad - all synchronization from ObjectRuntime.go is discarded here,
+	// because the pointer will be decremented immediately after this function returns,
+	// and someone will be left holding onto a non-locked pointer.
+	pointer := value.ffiObject.incrementPointer("*ElStackBufferPoolConfig")
+	defer value.ffiObject.decrementPointer()
+	return pointer
+
+}
+
+func (c FfiConverterElStackBufferPoolConfig) Write(writer io.Writer, value *ElStackBufferPoolConfig) {
+	writeUint64(writer, uint64(uintptr(c.Lower(value))))
+}
+
+type FfiDestroyerElStackBufferPoolConfig struct{}
+
+func (_ FfiDestroyerElStackBufferPoolConfig) Destroy(value *ElStackBufferPoolConfig) {
+	value.Destroy()
+}
+
 type ElStackIssueConfigInterface interface {
 }
 type ElStackIssueConfig struct {
@@ -962,15 +1062,82 @@ func (_ FfiDestroyerElStackIssueConfig) Destroy(value *ElStackIssueConfig) {
 	value.Destroy()
 }
 
+type ElStackNicConfigInterface interface {
+}
+type ElStackNicConfig struct {
+	ffiObject FfiObject
+}
+
+func NewElStackNicConfig(mtu uint64, rxBatchSize uint64, txBatchSize uint64) *ElStackNicConfig {
+	return FfiConverterElStackNicConfigINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
+		return C.uniffi_el_stack_fn_constructor_elstacknicconfig_new(FfiConverterUint64INSTANCE.Lower(mtu), FfiConverterUint64INSTANCE.Lower(rxBatchSize), FfiConverterUint64INSTANCE.Lower(txBatchSize), _uniffiStatus)
+	}))
+}
+
+func ElStackNicConfigNewDefault() *ElStackNicConfig {
+	return FfiConverterElStackNicConfigINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
+		return C.uniffi_el_stack_fn_constructor_elstacknicconfig_new_default(_uniffiStatus)
+	}))
+}
+
+func (object *ElStackNicConfig) Destroy() {
+	runtime.SetFinalizer(object, nil)
+	object.ffiObject.destroy()
+}
+
+type FfiConverterElStackNicConfig struct{}
+
+var FfiConverterElStackNicConfigINSTANCE = FfiConverterElStackNicConfig{}
+
+func (c FfiConverterElStackNicConfig) Lift(pointer unsafe.Pointer) *ElStackNicConfig {
+	result := &ElStackNicConfig{
+		newFfiObject(
+			pointer,
+			func(pointer unsafe.Pointer, status *C.RustCallStatus) unsafe.Pointer {
+				return C.uniffi_el_stack_fn_clone_elstacknicconfig(pointer, status)
+			},
+			func(pointer unsafe.Pointer, status *C.RustCallStatus) {
+				C.uniffi_el_stack_fn_free_elstacknicconfig(pointer, status)
+			},
+		),
+	}
+	runtime.SetFinalizer(result, (*ElStackNicConfig).Destroy)
+	return result
+}
+
+func (c FfiConverterElStackNicConfig) Read(reader io.Reader) *ElStackNicConfig {
+	return c.Lift(unsafe.Pointer(uintptr(readUint64(reader))))
+}
+
+func (c FfiConverterElStackNicConfig) Lower(value *ElStackNicConfig) unsafe.Pointer {
+	// TODO: this is bad - all synchronization from ObjectRuntime.go is discarded here,
+	// because the pointer will be decremented immediately after this function returns,
+	// and someone will be left holding onto a non-locked pointer.
+	pointer := value.ffiObject.incrementPointer("*ElStackNicConfig")
+	defer value.ffiObject.decrementPointer()
+	return pointer
+
+}
+
+func (c FfiConverterElStackNicConfig) Write(writer io.Writer, value *ElStackNicConfig) {
+	writeUint64(writer, uint64(uintptr(c.Lower(value))))
+}
+
+type FfiDestroyerElStackNicConfig struct{}
+
+func (_ FfiDestroyerElStackNicConfig) Destroy(value *ElStackNicConfig) {
+	value.Destroy()
+}
+
 type ElStackProductConfigInterface interface {
 }
 type ElStackProductConfig struct {
 	ffiObject FfiObject
 }
 
-func NewElStackProductConfig(productName string, productVersion string, os string, caCert string, mtu uint64) *ElStackProductConfig {
+func NewElStackProductConfig(productName string, productVersion string, os string, caCert string) *ElStackProductConfig {
 	return FfiConverterElStackProductConfigINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
-		return C.uniffi_el_stack_fn_constructor_elstackproductconfig_new(FfiConverterStringINSTANCE.Lower(productName), FfiConverterStringINSTANCE.Lower(productVersion), FfiConverterStringINSTANCE.Lower(os), FfiConverterStringINSTANCE.Lower(caCert), FfiConverterUint64INSTANCE.Lower(mtu), _uniffiStatus)
+		return C.uniffi_el_stack_fn_constructor_elstackproductconfig_new(FfiConverterStringINSTANCE.Lower(productName), FfiConverterStringINSTANCE.Lower(productVersion), FfiConverterStringINSTANCE.Lower(os), FfiConverterStringINSTANCE.Lower(caCert), _uniffiStatus)
 	}))
 }
 
@@ -1023,64 +1190,137 @@ func (_ FfiDestroyerElStackProductConfig) Destroy(value *ElStackProductConfig) {
 	value.Destroy()
 }
 
-type ElStackSocketBufferConfigInterface interface {
+type ElStackRuntimeConfigInterface interface {
 }
-type ElStackSocketBufferConfig struct {
+type ElStackRuntimeConfig struct {
 	ffiObject FfiObject
 }
 
-func NewElStackSocketBufferConfig(maxBurstSize uint64, tcpBuffSize *uint64, udpBuffSize *uint64, udpMetaSize *uint64) *ElStackSocketBufferConfig {
-	return FfiConverterElStackSocketBufferConfigINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
-		return C.uniffi_el_stack_fn_constructor_elstacksocketbufferconfig_new(FfiConverterUint64INSTANCE.Lower(maxBurstSize), FfiConverterOptionalUint64INSTANCE.Lower(tcpBuffSize), FfiConverterOptionalUint64INSTANCE.Lower(udpBuffSize), FfiConverterOptionalUint64INSTANCE.Lower(udpMetaSize), _uniffiStatus)
+func NewElStackRuntimeConfig(nic *ElStackNicConfig, stack *ElStackStackConfig) *ElStackRuntimeConfig {
+	return FfiConverterElStackRuntimeConfigINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
+		return C.uniffi_el_stack_fn_constructor_elstackruntimeconfig_new(FfiConverterElStackNicConfigINSTANCE.Lower(nic), FfiConverterElStackStackConfigINSTANCE.Lower(stack), _uniffiStatus)
 	}))
 }
 
-func (object *ElStackSocketBufferConfig) Destroy() {
+func ElStackRuntimeConfigNewDefault() *ElStackRuntimeConfig {
+	return FfiConverterElStackRuntimeConfigINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
+		return C.uniffi_el_stack_fn_constructor_elstackruntimeconfig_new_default(_uniffiStatus)
+	}))
+}
+
+func (object *ElStackRuntimeConfig) Destroy() {
 	runtime.SetFinalizer(object, nil)
 	object.ffiObject.destroy()
 }
 
-type FfiConverterElStackSocketBufferConfig struct{}
+type FfiConverterElStackRuntimeConfig struct{}
 
-var FfiConverterElStackSocketBufferConfigINSTANCE = FfiConverterElStackSocketBufferConfig{}
+var FfiConverterElStackRuntimeConfigINSTANCE = FfiConverterElStackRuntimeConfig{}
 
-func (c FfiConverterElStackSocketBufferConfig) Lift(pointer unsafe.Pointer) *ElStackSocketBufferConfig {
-	result := &ElStackSocketBufferConfig{
+func (c FfiConverterElStackRuntimeConfig) Lift(pointer unsafe.Pointer) *ElStackRuntimeConfig {
+	result := &ElStackRuntimeConfig{
 		newFfiObject(
 			pointer,
 			func(pointer unsafe.Pointer, status *C.RustCallStatus) unsafe.Pointer {
-				return C.uniffi_el_stack_fn_clone_elstacksocketbufferconfig(pointer, status)
+				return C.uniffi_el_stack_fn_clone_elstackruntimeconfig(pointer, status)
 			},
 			func(pointer unsafe.Pointer, status *C.RustCallStatus) {
-				C.uniffi_el_stack_fn_free_elstacksocketbufferconfig(pointer, status)
+				C.uniffi_el_stack_fn_free_elstackruntimeconfig(pointer, status)
 			},
 		),
 	}
-	runtime.SetFinalizer(result, (*ElStackSocketBufferConfig).Destroy)
+	runtime.SetFinalizer(result, (*ElStackRuntimeConfig).Destroy)
 	return result
 }
 
-func (c FfiConverterElStackSocketBufferConfig) Read(reader io.Reader) *ElStackSocketBufferConfig {
+func (c FfiConverterElStackRuntimeConfig) Read(reader io.Reader) *ElStackRuntimeConfig {
 	return c.Lift(unsafe.Pointer(uintptr(readUint64(reader))))
 }
 
-func (c FfiConverterElStackSocketBufferConfig) Lower(value *ElStackSocketBufferConfig) unsafe.Pointer {
+func (c FfiConverterElStackRuntimeConfig) Lower(value *ElStackRuntimeConfig) unsafe.Pointer {
 	// TODO: this is bad - all synchronization from ObjectRuntime.go is discarded here,
 	// because the pointer will be decremented immediately after this function returns,
 	// and someone will be left holding onto a non-locked pointer.
-	pointer := value.ffiObject.incrementPointer("*ElStackSocketBufferConfig")
+	pointer := value.ffiObject.incrementPointer("*ElStackRuntimeConfig")
 	defer value.ffiObject.decrementPointer()
 	return pointer
 
 }
 
-func (c FfiConverterElStackSocketBufferConfig) Write(writer io.Writer, value *ElStackSocketBufferConfig) {
+func (c FfiConverterElStackRuntimeConfig) Write(writer io.Writer, value *ElStackRuntimeConfig) {
 	writeUint64(writer, uint64(uintptr(c.Lower(value))))
 }
 
-type FfiDestroyerElStackSocketBufferConfig struct{}
+type FfiDestroyerElStackRuntimeConfig struct{}
 
-func (_ FfiDestroyerElStackSocketBufferConfig) Destroy(value *ElStackSocketBufferConfig) {
+func (_ FfiDestroyerElStackRuntimeConfig) Destroy(value *ElStackRuntimeConfig) {
+	value.Destroy()
+}
+
+type ElStackStackConfigInterface interface {
+}
+type ElStackStackConfig struct {
+	ffiObject FfiObject
+}
+
+func NewElStackStackConfig(datagramPool *ElStackBufferPoolConfig, receivePool *ElStackBufferPoolConfig, sendPool *ElStackBufferPoolConfig, maxSockets uint64, tcpReceiveBuffer uint64, tcpSendBuffer uint64) *ElStackStackConfig {
+	return FfiConverterElStackStackConfigINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
+		return C.uniffi_el_stack_fn_constructor_elstackstackconfig_new(FfiConverterElStackBufferPoolConfigINSTANCE.Lower(datagramPool), FfiConverterElStackBufferPoolConfigINSTANCE.Lower(receivePool), FfiConverterElStackBufferPoolConfigINSTANCE.Lower(sendPool), FfiConverterUint64INSTANCE.Lower(maxSockets), FfiConverterUint64INSTANCE.Lower(tcpReceiveBuffer), FfiConverterUint64INSTANCE.Lower(tcpSendBuffer), _uniffiStatus)
+	}))
+}
+
+func ElStackStackConfigNewDefault() *ElStackStackConfig {
+	return FfiConverterElStackStackConfigINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
+		return C.uniffi_el_stack_fn_constructor_elstackstackconfig_new_default(_uniffiStatus)
+	}))
+}
+
+func (object *ElStackStackConfig) Destroy() {
+	runtime.SetFinalizer(object, nil)
+	object.ffiObject.destroy()
+}
+
+type FfiConverterElStackStackConfig struct{}
+
+var FfiConverterElStackStackConfigINSTANCE = FfiConverterElStackStackConfig{}
+
+func (c FfiConverterElStackStackConfig) Lift(pointer unsafe.Pointer) *ElStackStackConfig {
+	result := &ElStackStackConfig{
+		newFfiObject(
+			pointer,
+			func(pointer unsafe.Pointer, status *C.RustCallStatus) unsafe.Pointer {
+				return C.uniffi_el_stack_fn_clone_elstackstackconfig(pointer, status)
+			},
+			func(pointer unsafe.Pointer, status *C.RustCallStatus) {
+				C.uniffi_el_stack_fn_free_elstackstackconfig(pointer, status)
+			},
+		),
+	}
+	runtime.SetFinalizer(result, (*ElStackStackConfig).Destroy)
+	return result
+}
+
+func (c FfiConverterElStackStackConfig) Read(reader io.Reader) *ElStackStackConfig {
+	return c.Lift(unsafe.Pointer(uintptr(readUint64(reader))))
+}
+
+func (c FfiConverterElStackStackConfig) Lower(value *ElStackStackConfig) unsafe.Pointer {
+	// TODO: this is bad - all synchronization from ObjectRuntime.go is discarded here,
+	// because the pointer will be decremented immediately after this function returns,
+	// and someone will be left holding onto a non-locked pointer.
+	pointer := value.ffiObject.incrementPointer("*ElStackStackConfig")
+	defer value.ffiObject.decrementPointer()
+	return pointer
+
+}
+
+func (c FfiConverterElStackStackConfig) Write(writer io.Writer, value *ElStackStackConfig) {
+	writeUint64(writer, uint64(uintptr(c.Lower(value))))
+}
+
+type FfiDestroyerElStackStackConfig struct{}
+
+func (_ FfiDestroyerElStackStackConfig) Destroy(value *ElStackStackConfig) {
 	value.Destroy()
 }
 
@@ -1207,14 +1447,14 @@ func (_ FfiDestroyerElStackVpnConfig) Destroy(value *ElStackVpnConfig) {
 }
 
 type TcpListenerInterface interface {
-	Accept(timeoutMsecs uint64) (*TcpStream, error)
+	Accept(timeoutMsecs uint64) (*TcpStream, *SocketError)
 	BindAddr() string
 }
 type TcpListener struct {
 	ffiObject FfiObject
 }
 
-func (_self *TcpListener) Accept(timeoutMsecs uint64) (*TcpStream, error) {
+func (_self *TcpListener) Accept(timeoutMsecs uint64) (*TcpStream, *SocketError) {
 	_pointer := _self.ffiObject.incrementPointer("*TcpListener")
 	defer _self.ffiObject.decrementPointer()
 	res, err := uniffiRustCallAsync[SocketError](
@@ -1239,10 +1479,6 @@ func (_self *TcpListener) Accept(timeoutMsecs uint64) (*TcpStream, error) {
 			C.ffi_el_stack_rust_future_free_pointer(handle)
 		},
 	)
-
-	if err == nil {
-		return res, nil
-	}
 
 	return res, err
 }
@@ -1310,8 +1546,8 @@ type TcpStreamInterface interface {
 	Close()
 	LocalAddr() string
 	PeerAddr() string
-	Recv(timeoutSecs uint64) ([]byte, error)
-	Send(buf []byte, timeoutSecs uint64) error
+	Recv(timeoutSecs uint64) ([]byte, *SocketError)
+	Send(buf []byte, timeoutSecs uint64) *SocketError
 }
 type TcpStream struct {
 	ffiObject FfiObject
@@ -1320,7 +1556,7 @@ type TcpStream struct {
 func (_self *TcpStream) Close() {
 	_pointer := _self.ffiObject.incrementPointer("*TcpStream")
 	defer _self.ffiObject.decrementPointer()
-	uniffiRustCallAsync[error](
+	uniffiRustCallAsync[struct{}](
 		nil,
 		// completeFn
 		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
@@ -1365,7 +1601,7 @@ func (_self *TcpStream) PeerAddr() string {
 	}))
 }
 
-func (_self *TcpStream) Recv(timeoutSecs uint64) ([]byte, error) {
+func (_self *TcpStream) Recv(timeoutSecs uint64) ([]byte, *SocketError) {
 	_pointer := _self.ffiObject.incrementPointer("*TcpStream")
 	defer _self.ffiObject.decrementPointer()
 	res, err := uniffiRustCallAsync[SocketError](
@@ -1393,14 +1629,10 @@ func (_self *TcpStream) Recv(timeoutSecs uint64) ([]byte, error) {
 		},
 	)
 
-	if err == nil {
-		return res, nil
-	}
-
 	return res, err
 }
 
-func (_self *TcpStream) Send(buf []byte, timeoutSecs uint64) error {
+func (_self *TcpStream) Send(buf []byte, timeoutSecs uint64) *SocketError {
 	_pointer := _self.ffiObject.incrementPointer("*TcpStream")
 	defer _self.ffiObject.decrementPointer()
 	_, err := uniffiRustCallAsync[SocketError](
@@ -1423,10 +1655,6 @@ func (_self *TcpStream) Send(buf []byte, timeoutSecs uint64) error {
 			C.ffi_el_stack_rust_future_free_void(handle)
 		},
 	)
-
-	if err == nil {
-		return nil
-	}
 
 	return err
 }
@@ -1483,8 +1711,8 @@ type TlsStreamInterface interface {
 	Close()
 	LocalAddr() string
 	PeerAddr() string
-	Recv(timeoutSecs uint64) ([]byte, error)
-	Send(buf []byte, timeoutSecs uint64) error
+	Recv(timeoutSecs uint64) ([]byte, *SocketError)
+	Send(buf []byte, timeoutSecs uint64) *SocketError
 }
 type TlsStream struct {
 	ffiObject FfiObject
@@ -1493,7 +1721,7 @@ type TlsStream struct {
 func (_self *TlsStream) Close() {
 	_pointer := _self.ffiObject.incrementPointer("*TlsStream")
 	defer _self.ffiObject.decrementPointer()
-	uniffiRustCallAsync[error](
+	uniffiRustCallAsync[struct{}](
 		nil,
 		// completeFn
 		func(handle C.uint64_t, status *C.RustCallStatus) struct{} {
@@ -1538,7 +1766,7 @@ func (_self *TlsStream) PeerAddr() string {
 	}))
 }
 
-func (_self *TlsStream) Recv(timeoutSecs uint64) ([]byte, error) {
+func (_self *TlsStream) Recv(timeoutSecs uint64) ([]byte, *SocketError) {
 	_pointer := _self.ffiObject.incrementPointer("*TlsStream")
 	defer _self.ffiObject.decrementPointer()
 	res, err := uniffiRustCallAsync[SocketError](
@@ -1566,14 +1794,10 @@ func (_self *TlsStream) Recv(timeoutSecs uint64) ([]byte, error) {
 		},
 	)
 
-	if err == nil {
-		return res, nil
-	}
-
 	return res, err
 }
 
-func (_self *TlsStream) Send(buf []byte, timeoutSecs uint64) error {
+func (_self *TlsStream) Send(buf []byte, timeoutSecs uint64) *SocketError {
 	_pointer := _self.ffiObject.incrementPointer("*TlsStream")
 	defer _self.ffiObject.decrementPointer()
 	_, err := uniffiRustCallAsync[SocketError](
@@ -1596,10 +1820,6 @@ func (_self *TlsStream) Send(buf []byte, timeoutSecs uint64) error {
 			C.ffi_el_stack_rust_future_free_void(handle)
 		},
 	)
-
-	if err == nil {
-		return nil
-	}
 
 	return err
 }
@@ -1654,8 +1874,8 @@ func (_ FfiDestroyerTlsStream) Destroy(value *TlsStream) {
 
 type UdpSocketInterface interface {
 	LocalAddr() string
-	RecvFrom(timeoutSecs uint64) (RecvFromResult, error)
-	SendTo(buf []byte, target string, timeoutSecs uint64) (uint32, error)
+	RecvFrom(timeoutSecs uint64) (RecvFromResult, *SocketError)
+	SendTo(buf []byte, target string, timeoutSecs uint64) (uint32, *SocketError)
 }
 type UdpSocket struct {
 	ffiObject FfiObject
@@ -1672,7 +1892,7 @@ func (_self *UdpSocket) LocalAddr() string {
 	}))
 }
 
-func (_self *UdpSocket) RecvFrom(timeoutSecs uint64) (RecvFromResult, error) {
+func (_self *UdpSocket) RecvFrom(timeoutSecs uint64) (RecvFromResult, *SocketError) {
 	_pointer := _self.ffiObject.incrementPointer("*UdpSocket")
 	defer _self.ffiObject.decrementPointer()
 	res, err := uniffiRustCallAsync[SocketError](
@@ -1700,14 +1920,10 @@ func (_self *UdpSocket) RecvFrom(timeoutSecs uint64) (RecvFromResult, error) {
 		},
 	)
 
-	if err == nil {
-		return res, nil
-	}
-
 	return res, err
 }
 
-func (_self *UdpSocket) SendTo(buf []byte, target string, timeoutSecs uint64) (uint32, error) {
+func (_self *UdpSocket) SendTo(buf []byte, target string, timeoutSecs uint64) (uint32, *SocketError) {
 	_pointer := _self.ffiObject.incrementPointer("*UdpSocket")
 	defer _self.ffiObject.decrementPointer()
 	res, err := uniffiRustCallAsync[SocketError](
@@ -1732,10 +1948,6 @@ func (_self *UdpSocket) SendTo(buf []byte, target string, timeoutSecs uint64) (u
 			C.ffi_el_stack_rust_future_free_u32(handle)
 		},
 	)
-
-	if err == nil {
-		return res, nil
-	}
 
 	return res, err
 }
@@ -1815,10 +2027,6 @@ func (c FfiConverterRecvFromResult) Read(reader io.Reader) RecvFromResult {
 
 func (c FfiConverterRecvFromResult) Lower(value RecvFromResult) C.RustBuffer {
 	return LowerIntoRustBuffer[RecvFromResult](c, value)
-}
-
-func (c FfiConverterRecvFromResult) LowerExternal(value RecvFromResult) ExternalCRustBuffer {
-	return RustBufferFromC(LowerIntoRustBuffer[RecvFromResult](c, value))
 }
 
 func (c FfiConverterRecvFromResult) Write(writer io.Writer, value RecvFromResult) {
@@ -2439,10 +2647,6 @@ func (c FfiConverterConnectionError) Lower(value *ConnectionError) C.RustBuffer 
 	return LowerIntoRustBuffer[*ConnectionError](c, value)
 }
 
-func (c FfiConverterConnectionError) LowerExternal(value *ConnectionError) ExternalCRustBuffer {
-	return RustBufferFromC(LowerIntoRustBuffer[*ConnectionError](c, value))
-}
-
 func (c FfiConverterConnectionError) Read(reader io.Reader) *ConnectionError {
 	errorID := readUint32(reader)
 
@@ -2655,7 +2859,6 @@ type ElStackVpnConnectionType uint
 const (
 	ElStackVpnConnectionTypeTls  ElStackVpnConnectionType = 1
 	ElStackVpnConnectionTypeQuic ElStackVpnConnectionType = 2
-	ElStackVpnConnectionTypeTcp  ElStackVpnConnectionType = 3
 )
 
 type FfiConverterElStackVpnConnectionType struct{}
@@ -2668,10 +2871,6 @@ func (c FfiConverterElStackVpnConnectionType) Lift(rb RustBufferI) ElStackVpnCon
 
 func (c FfiConverterElStackVpnConnectionType) Lower(value ElStackVpnConnectionType) C.RustBuffer {
 	return LowerIntoRustBuffer[ElStackVpnConnectionType](c, value)
-}
-
-func (c FfiConverterElStackVpnConnectionType) LowerExternal(value ElStackVpnConnectionType) ExternalCRustBuffer {
-	return RustBufferFromC(LowerIntoRustBuffer[ElStackVpnConnectionType](c, value))
 }
 func (FfiConverterElStackVpnConnectionType) Read(reader io.Reader) ElStackVpnConnectionType {
 	id := readInt32(reader)
@@ -3142,10 +3341,6 @@ func (c FfiConverterSocketError) Lower(value *SocketError) C.RustBuffer {
 	return LowerIntoRustBuffer[*SocketError](c, value)
 }
 
-func (c FfiConverterSocketError) LowerExternal(value *SocketError) ExternalCRustBuffer {
-	return RustBufferFromC(LowerIntoRustBuffer[*SocketError](c, value))
-}
-
 func (c FfiConverterSocketError) Read(reader io.Reader) *SocketError {
 	errorID := readUint32(reader)
 
@@ -3323,10 +3518,6 @@ func (c FfiConverterVpnStatus) Lift(rb RustBufferI) VpnStatus {
 
 func (c FfiConverterVpnStatus) Lower(value VpnStatus) C.RustBuffer {
 	return LowerIntoRustBuffer[VpnStatus](c, value)
-}
-
-func (c FfiConverterVpnStatus) LowerExternal(value VpnStatus) ExternalCRustBuffer {
-	return RustBufferFromC(LowerIntoRustBuffer[VpnStatus](c, value))
 }
 func (FfiConverterVpnStatus) Read(reader io.Reader) VpnStatus {
 	id := readInt32(reader)
@@ -3670,47 +3861,6 @@ func (c FfiConverterCallbackInterfaceElStackVpnEventDelegate) register() {
 	C.uniffi_el_stack_fn_init_callback_vtable_elstackvpneventdelegate(&UniffiVTableCallbackInterfaceElStackVpnEventDelegateINSTANCE)
 }
 
-type FfiConverterOptionalUint64 struct{}
-
-var FfiConverterOptionalUint64INSTANCE = FfiConverterOptionalUint64{}
-
-func (c FfiConverterOptionalUint64) Lift(rb RustBufferI) *uint64 {
-	return LiftFromRustBuffer[*uint64](c, rb)
-}
-
-func (_ FfiConverterOptionalUint64) Read(reader io.Reader) *uint64 {
-	if readInt8(reader) == 0 {
-		return nil
-	}
-	temp := FfiConverterUint64INSTANCE.Read(reader)
-	return &temp
-}
-
-func (c FfiConverterOptionalUint64) Lower(value *uint64) C.RustBuffer {
-	return LowerIntoRustBuffer[*uint64](c, value)
-}
-
-func (c FfiConverterOptionalUint64) LowerExternal(value *uint64) ExternalCRustBuffer {
-	return RustBufferFromC(LowerIntoRustBuffer[*uint64](c, value))
-}
-
-func (_ FfiConverterOptionalUint64) Write(writer io.Writer, value *uint64) {
-	if value == nil {
-		writeInt8(writer, 0)
-	} else {
-		writeInt8(writer, 1)
-		FfiConverterUint64INSTANCE.Write(writer, *value)
-	}
-}
-
-type FfiDestroyerOptionalUint64 struct{}
-
-func (_ FfiDestroyerOptionalUint64) Destroy(value *uint64) {
-	if value != nil {
-		FfiDestroyerUint64{}.Destroy(*value)
-	}
-}
-
 type FfiConverterOptionalString struct{}
 
 var FfiConverterOptionalStringINSTANCE = FfiConverterOptionalString{}
@@ -3729,10 +3879,6 @@ func (_ FfiConverterOptionalString) Read(reader io.Reader) *string {
 
 func (c FfiConverterOptionalString) Lower(value *string) C.RustBuffer {
 	return LowerIntoRustBuffer[*string](c, value)
-}
-
-func (c FfiConverterOptionalString) LowerExternal(value *string) ExternalCRustBuffer {
-	return RustBufferFromC(LowerIntoRustBuffer[*string](c, value))
 }
 
 func (_ FfiConverterOptionalString) Write(writer io.Writer, value *string) {
@@ -3774,10 +3920,6 @@ func (c FfiConverterSequenceString) Read(reader io.Reader) []string {
 
 func (c FfiConverterSequenceString) Lower(value []string) C.RustBuffer {
 	return LowerIntoRustBuffer[[]string](c, value)
-}
-
-func (c FfiConverterSequenceString) LowerExternal(value []string) ExternalCRustBuffer {
-	return RustBufferFromC(LowerIntoRustBuffer[[]string](c, value))
 }
 
 func (c FfiConverterSequenceString) Write(writer io.Writer, value []string) {
@@ -3862,9 +4004,9 @@ func el_stack_uniffiFreeGorutine(data C.uint64_t) {
 	guard <- struct{}{}
 }
 
-func Initialize(productConfig *ElStackProductConfig, socketBufferConfig *ElStackSocketBufferConfig) {
+func Initialize(productConfig *ElStackProductConfig, runtimeConfig *ElStackRuntimeConfig) {
 	rustCall(func(_uniffiStatus *C.RustCallStatus) bool {
-		C.uniffi_el_stack_fn_func_initialize(FfiConverterElStackProductConfigINSTANCE.Lower(productConfig), FfiConverterElStackSocketBufferConfigINSTANCE.Lower(socketBufferConfig), _uniffiStatus)
+		C.uniffi_el_stack_fn_func_initialize(FfiConverterElStackProductConfigINSTANCE.Lower(productConfig), FfiConverterElStackRuntimeConfigINSTANCE.Lower(runtimeConfig), _uniffiStatus)
 		return false
 	})
 }
@@ -3876,7 +4018,7 @@ func Restart() {
 	})
 }
 
-func Start(vpnDelegate ElStackVpnEventDelegate, vpnConfig *ElStackVpnConfig, vcConfig *ElStackVcConfig, capturePath *string) error {
+func Start(vpnDelegate ElStackVpnEventDelegate, vpnConfig *ElStackVpnConfig, vcConfig *ElStackVcConfig, capturePath *string) *ConnectionError {
 	_, err := uniffiRustCallAsync[ConnectionError](
 		FfiConverterConnectionErrorINSTANCE,
 		// completeFn
@@ -3897,10 +4039,6 @@ func Start(vpnDelegate ElStackVpnEventDelegate, vpnConfig *ElStackVpnConfig, vcC
 		},
 	)
 
-	if err == nil {
-		return nil
-	}
-
 	return err
 }
 
@@ -3912,7 +4050,7 @@ func Stop() {
 }
 
 // TCPのbind(for tcp server)
-func TcpBind(bindAddr string) (*TcpListener, error) {
+func TcpBind(bindAddr string) (*TcpListener, *SocketError) {
 	res, err := uniffiRustCallAsync[SocketError](
 		FfiConverterSocketErrorINSTANCE,
 		// completeFn
@@ -3935,15 +4073,11 @@ func TcpBind(bindAddr string) (*TcpListener, error) {
 		},
 	)
 
-	if err == nil {
-		return res, nil
-	}
-
 	return res, err
 }
 
 // TCPの接続(for tcp client)
-func TcpConnect(host string, serv string, timeoutInterval uint64) (*TcpStream, error) {
+func TcpConnect(host string, serv string, timeoutInterval uint64) (*TcpStream, *SocketError) {
 	res, err := uniffiRustCallAsync[SocketError](
 		FfiConverterSocketErrorINSTANCE,
 		// completeFn
@@ -3966,15 +4100,11 @@ func TcpConnect(host string, serv string, timeoutInterval uint64) (*TcpStream, e
 		},
 	)
 
-	if err == nil {
-		return res, nil
-	}
-
 	return res, err
 }
 
 // TLSの接続
-func TlsConnect(host string, serv string, timeoutInterval uint64) (*TlsStream, error) {
+func TlsConnect(host string, serv string, timeoutInterval uint64) (*TlsStream, *SocketError) {
 	res, err := uniffiRustCallAsync[SocketError](
 		FfiConverterSocketErrorINSTANCE,
 		// completeFn
@@ -3997,15 +4127,11 @@ func TlsConnect(host string, serv string, timeoutInterval uint64) (*TlsStream, e
 		},
 	)
 
-	if err == nil {
-		return res, nil
-	}
-
 	return res, err
 }
 
 // UDPのbind(for udp server/client)
-func UdpBind(bindAddr string) (*UdpSocket, error) {
+func UdpBind(bindAddr string) (*UdpSocket, *SocketError) {
 	res, err := uniffiRustCallAsync[SocketError](
 		FfiConverterSocketErrorINSTANCE,
 		// completeFn
@@ -4027,10 +4153,6 @@ func UdpBind(bindAddr string) (*UdpSocket, error) {
 			C.ffi_el_stack_rust_future_free_pointer(handle)
 		},
 	)
-
-	if err == nil {
-		return res, nil
-	}
 
 	return res, err
 }
