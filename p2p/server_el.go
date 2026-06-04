@@ -1,78 +1,89 @@
 package p2p
 
 import (
+	"errors"
 	"net"
-	"sync"
 
 	"github.com/ethereum/go-ethereum/p2p/elstack"
 )
 
-const initialELResultsBufferSize = 8
+var unknownRetryPolicyError = errors.New("unknown EL retry policy is set")
 
 func (srv *Server) setupEL() error {
 	if srv.EL == nil || !srv.EL.Use {
 		return nil
 	}
 
-	results := make(chan elstack.LinkedResult, initialELResultsBufferSize)
-	setupQuit := make(chan struct{})
-	var stopELOnce sync.Once
-	stopEL := func() {
-		stopELOnce.Do(func() {
-			close(setupQuit)
-		})
-	}
+	delegate := elstack.NewELStackVpnDelegate()
+	errCh := make(chan error)
+	finishedCh := make(chan struct{})
 
-	// Start EL stack and wait synchronously for the first IP before binding listeners.
+	// goroutine loop to handling chans send to delegate
+
 	go func() {
-		select {
-		case <-srv.quit:
-			stopEL()
-		case <-setupQuit:
+		var finished bool
+		for {
+			select {
+			case <-srv.quit:
+				elstack.StopEL(delegate)
+				return
+			case <-delegate.Done():
+				return
+			case addr := <-delegate.AddrCh:
+				if finished {
+					continue
+				}
+				finished = srv.applyELBindings(addr, finishedCh)
+			case err := <-delegate.ErrCh:
+				if finished {
+					continue
+				}
+				finished = srv.elErrorHandler(delegate, err, finishedCh, errCh)
+			}
 		}
 	}()
-	go elstack.SetupEL(srv.EL, results, setupQuit)
-	addr, err := elstack.WaitInitialEL(results)
-	if err != nil {
-		stopEL()
+
+	// call elstack SetupEL()
+	go elstack.SetupEL(srv.EL, delegate)
+
+	select {
+	case <-srv.quit:
+		elstack.StopEL(delegate)
+		return nil
+	case <-finishedCh:
+		return nil
+	case err := <-errCh:
 		return err
 	}
-
-	if err := srv.applyELBindings(addr); err != nil {
-		stopEL()
-		return err
-	}
-	go srv.monitorEL(results)
-
-	return nil
 }
 
-func (srv *Server) applyELBindings(addr net.IP) error {
+func (srv *Server) applyELBindings(addr net.IP, finished chan struct{}) bool {
 	_, port, err := net.SplitHostPort(srv.ListenAddr)
 	if err != nil {
-		return err
+		srv.log.Warn("applyELBindings failed", "err", err)
+		return false
 	}
 	srv.localnode.SetStaticIP(addr) // update staticIP to el_stack IPAddr
 	srv.ListenAddr = net.JoinHostPort(addr.String(), port)
 	srv.listenFunc = elstack.ListenELTCP
 	srv.Dialer = elstack.ElStackTcpDialer{Timeout: defaultDialTimeout}
 	srv.listenUDPFunc = elstack.ListenELUDP
-	return nil
+	close(finished)
+	return true
 }
 
-func (srv *Server) monitorEL(results chan elstack.LinkedResult) {
-	for {
-		select {
-		case result, ok := <-results:
-			if !ok {
-				srv.log.Error("LinkedResult channel is disabled")
-				return
-			}
-			if result.Err != nil {
-				srv.log.Error("EL link disconnected", "reason", result.Err)
-			}
-		case <-srv.quit:
-			return
-		}
+func (srv *Server) elErrorHandler(delegate *elstack.VpnDelegate, err error, finished chan struct{}, errCh chan error) bool {
+	switch srv.EL.RetryPolicy {
+	case elstack.ELRetryPolicyRetry:
+		return false
+	case elstack.ELRetryPolicyFailFast:
+		errCh <- err
+	case elstack.ELRetryPolicyFallback:
+		close(finished)
+	default:
+		srv.log.Error("unknown EL retry policy is set")
+		errCh <- unknownRetryPolicyError
 	}
+	elstack.StopEL(delegate)
+	return true
 }

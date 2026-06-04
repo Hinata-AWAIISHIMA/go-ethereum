@@ -939,6 +939,12 @@ var (
 		Usage:    "Optional EL connection timeout in seconds (0 disables override)",
 		Category: flags.NetworkingCategory,
 	}
+	ELRetryPolicyFlag = &cli.IntFlag{
+		Name:     "el.retrypolicy",
+		Usage:    "EL retry policy (-1 unset, 0 retry, 1 failfast, 2 fallback)",
+		Value:    elstack.ELRetryPolicyUnset,
+		Category: flags.NetworkingCategory,
+	}
 	ELCapturePathFlag = &cli.StringFlag{
 		Name:     "el.capturepath",
 		Usage:    "File path to store EL packet captures (set to enable capture)",
@@ -1243,7 +1249,7 @@ func setNAT(ctx *cli.Context, cfg *p2p.Config) {
 // setEL creates a config structure for emotion-link in p2p.Config
 func setEL(ctx *cli.Context, cfg *p2p.Config) {
 	if cfg.EL == nil {
-		cfg.EL = &elstack.ELConfig{}
+		cfg.EL = &elstack.ELConfig{RetryPolicy: elstack.ELRetryPolicyUnset}
 	}
 	if ctx.IsSet(UseELFlag.Name) {
 		cfg.EL.Use = ctx.Bool(UseELFlag.Name)
@@ -1311,6 +1317,9 @@ func setEL(ctx *cli.Context, cfg *p2p.Config) {
 		} else {
 			cfg.EL.ConnectionTimeout = nil
 		}
+	}
+	if ctx.IsSet(ELRetryPolicyFlag.Name) {
+		cfg.EL.RetryPolicy = ctx.Int(ELRetryPolicyFlag.Name)
 	}
 	if ctx.IsSet(ELCapturePathFlag.Name) {
 		capturePath := ctx.String(ELCapturePathFlag.Name)

@@ -235,6 +235,10 @@ type NodeConfig struct {
 	// ELConnectionTimeout is the optional emotion-link connection timeout in seconds.
 	// Zero means unset.
 	ELConnectionTimeout int64
+
+	// ADDED by Hinata AWAIISHIMA (EL)
+	// ELRetryPolicy controls how the client behaves when the initial EL link fails.
+	ELRetryPolicy int
 }
 
 // defaultNodeConfig contains the default node configuration values to use if all
@@ -267,7 +271,8 @@ var defaultNodeConfig = &NodeConfig{
 	CliqueSnapshotCacheCount: 128,
 	// ADDED by Jakub Pajek END
 	// ADDED by Hinata AWAIISHIMA (EL)
-	ELUse: false,
+	ELUse:         false,
+	ELRetryPolicy: elstack.ELRetryPolicyUnset,
 }
 
 // NewNodeConfig creates a new node option set, initialized to the default values.
@@ -391,7 +396,7 @@ func NewNode(datadir string, config *NodeConfig) (stack *Node, _ error) {
 	}
 	// ADDED by Jakub Pajek END
 	// ADDED by Hinata AWAIISHIMA BEG (EL)
-	el := elstack.ELConfig{}
+	el := elstack.ELConfig{RetryPolicy: elstack.ELRetryPolicyUnset}
 	if config.ELUse {
 		if natif != nil {
 			return nil, errors.New("invalid config: NAT mode and EL mode can't use at same time")
@@ -414,6 +419,7 @@ func NewNode(datadir string, config *NodeConfig) (stack *Node, _ error) {
 			ServerCACert:      config.ELServerCACert,
 			CapturePath:       config.ELCapturePath,
 			ConnectionTimeout: connectionTimeout,
+			RetryPolicy:       config.ELRetryPolicy,
 		}
 
 		if err := elstack.ValidateMobileELConfig(&el); err != nil {

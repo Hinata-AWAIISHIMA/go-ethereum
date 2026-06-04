@@ -19,7 +19,16 @@ type ELConfig struct {
 	ServerCACert      string
 	CapturePath       string
 	ConnectionTimeout *uint64
+	RetryPolicy       int
 }
+
+const ELRetryPolicyUnset = -1
+
+const (
+	ELRetryPolicyRetry = iota
+	ELRetryPolicyFailFast
+	ELRetryPolicyFallback
+)
 
 var (
 	ErrELConfigNil = errors.New("EL config is nil")
@@ -48,6 +57,14 @@ func ValidateELConfig(cfg *ELConfig) error {
 	}
 	if strings.TrimSpace(cfg.AntiOverlap) == "" {
 		return fmt.Errorf("AntiOverlap token is empty")
+	}
+	if cfg.RetryPolicy == ELRetryPolicyUnset {
+		return fmt.Errorf("EL retry policy is not set")
+	}
+	switch cfg.RetryPolicy {
+	case ELRetryPolicyRetry, ELRetryPolicyFailFast, ELRetryPolicyFallback:
+	default:
+		return fmt.Errorf("EL retry policy is invalid: %d", cfg.RetryPolicy)
 	}
 	return nil
 }

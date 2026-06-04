@@ -1,110 +1,38 @@
 package elstack
 
 import (
-	"errors"
 	"fmt"
 	"net"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
+	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/p2p/elstack/el_stack" // if you copied el_stack directory directly below elstack directory, use it.
 )
 
-// LinkedResult represents the initial link outcome from EL.
-type LinkedResult struct {
-	Addr net.IP
-	Err  error
-}
-
 // WisteriaVpnEventDelegate 実装
 type VpnDelegate struct {
-	results *linkedResultStream
+	AddrCh   chan net.IP
+	ErrCh    chan error
+	done     chan struct{}
+	doneOnce sync.Once
+	stopped  atomic.Bool
 }
 
-// linkedResultStream serializes send/close operations for LinkedResult channel.
-// It prevents panics caused by concurrent close and send.
-type linkedResultStream struct {
-	ch     chan LinkedResult
-	mu     sync.Mutex
-	closed bool
+func NewELStackVpnDelegate() *VpnDelegate {
+	return &VpnDelegate{
+		AddrCh: make(chan net.IP, 1),
+		ErrCh:  make(chan error, 1),
+		done:   make(chan struct{}),
+	}
 }
 
-const criticalResultRetryInterval = 10 * time.Millisecond
-
-func newLinkedResultStream(ch chan LinkedResult) *linkedResultStream {
-	if ch == nil {
+func (d *VpnDelegate) Done() <-chan struct{} {
+	if d == nil {
 		return nil
 	}
-	return &linkedResultStream{ch: ch}
-}
-
-func (s *linkedResultStream) trySendLocked(v LinkedResult) bool {
-	select {
-	case s.ch <- v:
-		return true
-	default:
-		return false
-	}
-}
-
-// SendBestEffort sends a result without blocking. It may drop when the buffer is full.
-func (s *linkedResultStream) SendBestEffort(v LinkedResult) bool {
-	if s == nil {
-		return false
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed || s.ch == nil {
-		return false
-	}
-	if s.trySendLocked(v) {
-		return true
-	}
-	elLog.Warn("LinkedResult channel is full; dropping event")
-	return false
-}
-
-// SendCritical retries until the event is sent or the stream is closed.
-func (s *linkedResultStream) SendCritical(v LinkedResult) bool {
-	if s == nil {
-		return false
-	}
-	loggedRetry := false
-	for {
-		s.mu.Lock()
-		if s.closed || s.ch == nil {
-			s.mu.Unlock()
-			return false
-		}
-		if s.trySendLocked(v) {
-			s.mu.Unlock()
-			return true
-		}
-		s.mu.Unlock()
-
-		if !loggedRetry {
-			elLog.Warn("LinkedResult channel is full; retrying critical event")
-			loggedRetry = true
-		}
-		time.Sleep(criticalResultRetryInterval)
-	}
-}
-
-func (s *linkedResultStream) Close() {
-	if s == nil {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
-		return
-	}
-	s.closed = true
-	if s.ch != nil {
-		close(s.ch)
-	}
+	return d.done
 }
 
 func (d *VpnDelegate) OnStatusChange(status el_stack.VpnStatus) {
@@ -113,7 +41,7 @@ func (d *VpnDelegate) OnStatusChange(status el_stack.VpnStatus) {
 
 func (d *VpnDelegate) OnConnectionError(msg string) {
 	elLog.Error("VPN Connection error", "msg", msg)
-	_ = d.results.SendBestEffort(LinkedResult{Err: errors.New(msg)})
+	d.sendErr(fmt.Errorf(msg))
 }
 
 func (d *VpnDelegate) OnLinkedParams(ipAddrs, dnsAddrs, routes []string) {
@@ -129,18 +57,30 @@ func (d *VpnDelegate) OnLinkedParams(ipAddrs, dnsAddrs, routes []string) {
 	elLog.Info("get ip address", "address", ipAddr)
 	addr := net.ParseIP(ipAddr)
 	if addr == nil {
-		_ = d.results.SendBestEffort(LinkedResult{Err: fmt.Errorf("invalid IP from EL: %s", ipAddr)})
+		d.sendErr(fmt.Errorf("invalid IP from EL: %s", ipAddr))
 		return
 	}
-	_ = d.results.SendCritical(LinkedResult{Addr: addr})
+	d.sendAddr(addr)
 }
 
-func SetupEL(cfg *ELConfig, results chan LinkedResult, quit <-chan struct{}) {
-	resultStream := newLinkedResultStream(results)
-	if resultStream == nil {
+func (d *VpnDelegate) sendErr(err error) {
+	if d == nil || err == nil || d.stopped.Load() {
 		return
 	}
+	d.ErrCh <- err
+}
 
+func (d *VpnDelegate) sendAddr(addr net.IP) {
+	if d == nil || addr == nil || d.stopped.Load() {
+		return
+	}
+	d.AddrCh <- addr
+}
+
+func SetupEL(cfg *ELConfig, delegate *VpnDelegate) {
+	if delegate == nil {
+		return
+	}
 	// We intentionally panic on missing required values earlier so failures are
 	// loud during startup rather than surfacing deep in the networking stack.
 	elLog.Info("SetupEL arg", "cfg.ServerAddr", cfg.ServerAddr)
@@ -203,45 +143,24 @@ func SetupEL(cfg *ELConfig, results chan LinkedResult, quit <-chan struct{}) {
 	// el_stack.Initialize(prodCfg, buffCfg)
 	el_stack.Initialize(prodCfg, runtimeCfg)
 
-	delegate := &VpnDelegate{results: resultStream}
-
 	if err := el_stack.Start(delegate, vpnCfg, vcCfg, capturePath); err != nil {
 		el_stack.Stop()
 		elLog.Error("SetupEL ERROR", "err", err)
-		_ = resultStream.SendCritical(LinkedResult{Err: err})
-		resultStream.Close()
+		delegate.sendErr(err)
 		return
 	}
 
-	if quit != nil {
-		go func() {
-			<-quit
-			el_stack.Stop()
-			resultStream.Close()
-		}()
-	}
 }
 
-// WaitInitialEL keeps waiting until an initial address is received.
-// Error events are logged and ignored so transient failures can recover.
-func WaitInitialEL(results <-chan LinkedResult) (net.IP, error) {
-	var lastErr error
-	for {
-		v, ok := <-results
-		if !ok {
-			if lastErr != nil {
-				return nil, fmt.Errorf("EL setup terminated before initial link: %w", lastErr)
-			}
-			return nil, fmt.Errorf("EL setup terminated before initial link")
-		}
-		if v.Err != nil {
-			lastErr = v.Err
-			elLog.Warn("EL initial link failed, waiting for retry", "err", v.Err)
-			continue
-		}
-		if v.Addr != nil {
-			elLog.Info("EL initial link established", "ip", v.Addr)
-			return v.Addr, nil
-		}
+func StopEL(delegate *VpnDelegate) {
+	if delegate == nil {
+		return
 	}
+	if delegate.stopped.Swap(true) {
+		return
+	}
+	delegate.doneOnce.Do(func() {
+		close(delegate.done)
+	})
+	el_stack.Stop()
 }

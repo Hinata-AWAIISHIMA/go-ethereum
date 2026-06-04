@@ -35,9 +35,6 @@ import (
 	"github.com/ethereum/go-ethereum/p2p/netutil"
 )
 
-// ADDED by Hinata AWAIISHIMA (EL)
-const initialELResultsBufferSize = 8
-
 func main() {
 	var (
 		listenAddr  = flag.String("addr", ":30301", "listen address")
@@ -62,6 +59,7 @@ func main() {
 		elServerPort   = flag.Int("el.serverport", 0, "emotion link server service port")
 		elServerCACert = flag.String("el.servercacert", "", "using server CA certificate")
 		elConnTimeout  = flag.Int64("el.connectiontimeout", 0, "optional emotion link connection timeout in seconds")
+		elRetryPolicy  = flag.Int("el.retrypolicy", elstack.ELRetryPolicyUnset, "emotion link retry policy (-1 unset, 0 retry, 1 failfast, 2 fallback)")
 		elCapturePath  = flag.String("el.capturepath", "", "path to store el packet capture file path")
 		// ADDED by Hinata AWAIISHIMA END (EL)
 
@@ -163,28 +161,31 @@ func main() {
 			ServerCACert:      cert,
 			CapturePath:       *elCapturePath,
 			ConnectionTimeout: connectionTimeout,
+			RetryPolicy:       *elRetryPolicy,
 		}
 		if err := elstack.ValidateELConfig(elCfg); err != nil {
 			utils.Fatalf("invalid EL config: %v", err)
 		}
 
-		results := make(chan elstack.LinkedResult, initialELResultsBufferSize)
-		go elstack.SetupEL(elCfg, results, nil)
-		addr, err := elstack.WaitInitialEL(results)
+		delegate := elstack.NewELStackVpnDelegate()
+		go elstack.SetupEL(elCfg, delegate)
+		addr, linked, err := waitInitialEL(elCfg, delegate)
 		if err != nil {
 			utils.Fatalf("EL setup failed: %v", err)
 		}
-		baseListen := *listenAddr
-		if baseListen == "" {
-			utils.Fatalf("EL enabled requires non-empty -addr")
+		if linked {
+			baseListen := *listenAddr
+			if baseListen == "" {
+				utils.Fatalf("EL enabled requires non-empty -addr")
+			}
+			_, port, err := net.SplitHostPort(baseListen)
+			if err != nil {
+				utils.Fatalf("invalid -addr %q: %v", baseListen, err)
+			}
+			*listenAddr = net.JoinHostPort(addr.String(), port)
+			go monitorEL(delegate)
+			listenUDPFunc = elstack.ListenELUDP
 		}
-		_, port, err := net.SplitHostPort(baseListen)
-		if err != nil {
-			utils.Fatalf("invalid -addr %q: %v", baseListen, err)
-		}
-		*listenAddr = net.JoinHostPort(addr.String(), port)
-		go monitorEL(results)
-		listenUDPFunc = elstack.ListenELUDP
 	}
 	// ADDED by Hinata AWAIISHIMA END (EL)
 
@@ -246,13 +247,43 @@ func printNotice(nodeKey *ecdsa.PublicKey, addr net.UDPAddr) {
 }
 
 // ADDED by Hinata AWAIISHIMA (EL)
-func monitorEL(results <-chan elstack.LinkedResult) {
-	for result := range results {
-		if result.Err != nil {
-			log.Error("EL link disconnected", "reason", result.Err)
+func waitInitialEL(cfg *elstack.ELConfig, delegate *elstack.VpnDelegate) (net.IP, bool, error) {
+	for {
+		select {
+		case addr := <-delegate.AddrCh:
+			return addr, true, nil
+		case err := <-delegate.ErrCh:
+			switch cfg.RetryPolicy {
+			case elstack.ELRetryPolicyRetry:
+				log.Warn("EL initial link failed, waiting for retry", "err", err)
+				continue
+			case elstack.ELRetryPolicyFailFast:
+				elstack.StopEL(delegate)
+				return nil, false, err
+			case elstack.ELRetryPolicyFallback:
+				elstack.StopEL(delegate)
+				return nil, false, nil
+			default:
+				elstack.StopEL(delegate)
+				return nil, false, fmt.Errorf("unknown EL retry policy is set")
+			}
+		case <-delegate.Done():
+			return nil, false, fmt.Errorf("EL setup terminated before initial link")
 		}
 	}
-	log.Error("LinkedResult channel is disabled")
+}
+
+func monitorEL(delegate *elstack.VpnDelegate) {
+	for {
+		select {
+		case err := <-delegate.ErrCh:
+			if err != nil {
+				log.Error("EL link disconnected", "reason", err)
+			}
+		case <-delegate.Done():
+			return
+		}
+	}
 }
 
 func doPortMapping(natm nat.Interface, ln *enode.LocalNode, addr *net.UDPAddr) *net.UDPAddr {
