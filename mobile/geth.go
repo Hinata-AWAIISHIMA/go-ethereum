@@ -230,6 +230,11 @@ type NodeConfig struct {
 	// ADDED by Hinata AWAIISHIMA (EL)
 	// ELCapturePath is the file path to store packet captures for emotion-link
 	ELCapturePath string
+
+	// ADDED by Hinata AWAIISHIMA (EL)
+	// ELConnectionTimeout is the optional emotion-link connection timeout in seconds.
+	// Zero means unset.
+	ELConnectionTimeout int64
 }
 
 // defaultNodeConfig contains the default node configuration values to use if all
@@ -391,16 +396,24 @@ func NewNode(datadir string, config *NodeConfig) (stack *Node, _ error) {
 		if natif != nil {
 			return nil, errors.New("invalid config: NAT mode and EL mode can't use at same time")
 		}
+		var connectionTimeout *uint64
+		if config.ELConnectionTimeout < 0 {
+			return nil, errors.New("invalid config: EL connection timeout must be non-negative")
+		} else if config.ELConnectionTimeout > 0 {
+			timeout := uint64(config.ELConnectionTimeout)
+			connectionTimeout = &timeout
+		}
 		el = elstack.ELConfig{
-			Use:           config.ELUse,
-			HolderVC:      config.ELHolderVC,
-			HolderPrivKey: config.ELHolderPrivKey,
-			AntiOverlap:   config.ELAntiOverlap,
-			IssuerPubKey:  config.ELIssuerPubKey,
-			ServerAddr:    config.ELServerAddr,
-			ServerPort:    config.ELServerPort,
-			ServerCACert:  config.ELServerCACert,
-			CapturePath:   config.ELCapturePath,
+			Use:               config.ELUse,
+			HolderVC:          config.ELHolderVC,
+			HolderPrivKey:     config.ELHolderPrivKey,
+			AntiOverlap:       config.ELAntiOverlap,
+			IssuerPubKey:      config.ELIssuerPubKey,
+			ServerAddr:        config.ELServerAddr,
+			ServerPort:        config.ELServerPort,
+			ServerCACert:      config.ELServerCACert,
+			CapturePath:       config.ELCapturePath,
+			ConnectionTimeout: connectionTimeout,
 		}
 
 		if err := elstack.ValidateMobileELConfig(&el); err != nil {

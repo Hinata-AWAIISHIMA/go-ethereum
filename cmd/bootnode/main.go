@@ -61,6 +61,7 @@ func main() {
 		elServerAddr   = flag.String("el.serveraddr", "", "emotion link server host")
 		elServerPort   = flag.Int("el.serverport", 0, "emotion link server service port")
 		elServerCACert = flag.String("el.servercacert", "", "using server CA certificate")
+		elConnTimeout  = flag.Int64("el.connectiontimeout", 0, "optional emotion link connection timeout in seconds")
 		elCapturePath  = flag.String("el.capturepath", "", "path to store el packet capture file path")
 		// ADDED by Hinata AWAIISHIMA END (EL)
 
@@ -143,16 +144,25 @@ func main() {
 		if err != nil {
 			utils.Fatalf("EL antioverlap: %v", err)
 		}
+		var connectionTimeout *uint64
+		if *elConnTimeout < 0 {
+			utils.Fatalf("EL connection timeout must be non-negative")
+		}
+		if *elConnTimeout > 0 {
+			timeout := uint64(*elConnTimeout)
+			connectionTimeout = &timeout
+		}
 		elCfg := &elstack.ELConfig{
-			Use:           true,
-			HolderVC:      vc,
-			HolderPrivKey: vcPriv,
-			AntiOverlap:   antiOverlap,
-			IssuerPubKey:  issuerPub,
-			ServerAddr:    *elServerAddr,
-			ServerPort:    *elServerPort,
-			ServerCACert:  cert,
-			CapturePath:   *elCapturePath,
+			Use:               true,
+			HolderVC:          vc,
+			HolderPrivKey:     vcPriv,
+			AntiOverlap:       antiOverlap,
+			IssuerPubKey:      issuerPub,
+			ServerAddr:        *elServerAddr,
+			ServerPort:        *elServerPort,
+			ServerCACert:      cert,
+			CapturePath:       *elCapturePath,
+			ConnectionTimeout: connectionTimeout,
 		}
 		if err := elstack.ValidateELConfig(elCfg); err != nil {
 			utils.Fatalf("invalid EL config: %v", err)

@@ -9,15 +9,16 @@ import (
 // ELConfig holds Emotion Link configuration propagated from CLI flags.
 // Note: field names drop the leading EL prefix here per specification.
 type ELConfig struct {
-	Use           bool
-	HolderVC      string
-	HolderPrivKey string
-	AntiOverlap   string
-	IssuerPubKey  string
-	ServerAddr    string
-	ServerPort    int
-	ServerCACert  string
-	CapturePath   string
+	Use               bool
+	HolderVC          string
+	HolderPrivKey     string
+	AntiOverlap       string
+	IssuerPubKey      string
+	ServerAddr        string
+	ServerPort        int
+	ServerCACert      string
+	CapturePath       string
+	ConnectionTimeout *uint64
 }
 
 var (

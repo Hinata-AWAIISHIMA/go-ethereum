@@ -934,6 +934,11 @@ var (
 		Name:     "el.servercacert",
 		Category: flags.NetworkingCategory,
 	}
+	ELConnectionTimeoutFlag = &cli.Int64Flag{
+		Name:     "el.connectiontimeout",
+		Usage:    "Optional EL connection timeout in seconds (0 disables override)",
+		Category: flags.NetworkingCategory,
+	}
 	ELCapturePathFlag = &cli.StringFlag{
 		Name:     "el.capturepath",
 		Usage:    "File path to store EL packet captures (set to enable capture)",
@@ -1294,6 +1299,18 @@ func setEL(ctx *cli.Context, cfg *p2p.Config) {
 			Fatalf("Failed to read EL certificate: %v", err)
 		}
 		cfg.EL.ServerCACert = cert
+	}
+	if ctx.IsSet(ELConnectionTimeoutFlag.Name) {
+		connectionTimeout := ctx.Int64(ELConnectionTimeoutFlag.Name)
+		if connectionTimeout < 0 {
+			Fatalf("EL connection timeout must be non-negative")
+		}
+		if connectionTimeout > 0 {
+			timeout := uint64(connectionTimeout)
+			cfg.EL.ConnectionTimeout = &timeout
+		} else {
+			cfg.EL.ConnectionTimeout = nil
+		}
 	}
 	if ctx.IsSet(ELCapturePathFlag.Name) {
 		capturePath := ctx.String(ELCapturePathFlag.Name)

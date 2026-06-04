@@ -5,7 +5,7 @@ package el_stack
 // #cgo ios,arm64 LDFLAGS: ${SRCDIR}/libs/ios_arm64/libel_stack.a -lm
 // #cgo iossimulator,arm64 LDFLAGS: ${SRCDIR}/libs/iossimulator_arm64/libel_stack.a -lm
 // #cgo darwin,arm64 LDFLAGS: ${SRCDIR}/libs/darwin_arm64/libel_stack.a -lm -framework SystemConfiguration -framework CoreFoundation
-// #cgo android,arm64 LDFLAGS: ${SRCDIR}/libs/android_arm64/libel_stack_original.a -lm
+// #cgo android,arm64 LDFLAGS: ${SRCDIR}/libs/android_arm64/libel_stack_v2.2.0.a -lm
 // #cgo !android,linux,amd64 LDFLAGS: ${SRCDIR}/libs/linux_amd64/libel_stack.a -lm
 // #cgo !android,linux,arm64 LDFLAGS: ${SRCDIR}/libs/linux_arm64/libel_stack.a -lm
 // #include <el_stack.h>
@@ -668,7 +668,7 @@ func uniffiCheckChecksums() {
 		checksum := rustCall(func(_uniffiStatus *C.RustCallStatus) C.uint16_t {
 			return C.uniffi_el_stack_checksum_constructor_elstackvpnconfig_new()
 		})
-		if checksum != 41342 {
+		if checksum != 58538 {
 			// If this happens try cleaning and rebuilding your project
 			panic("el_stack: uniffi_el_stack_checksum_constructor_elstackvpnconfig_new: UniFFI API checksum mismatch")
 		}
@@ -1391,9 +1391,9 @@ type ElStackVpnConfig struct {
 	ffiObject FfiObject
 }
 
-func NewElStackVpnConfig(serverHost string, serverServ string, antiOverlap string, recvTimeout uint64, keepaliveInterval uint64, connectionType ElStackVpnConnectionType) *ElStackVpnConfig {
+func NewElStackVpnConfig(serverHost string, serverServ string, antiOverlap string, recvTimeout uint64, connectionTimeout *uint64, keepaliveInterval uint64, connectionType ElStackVpnConnectionType) *ElStackVpnConfig {
 	return FfiConverterElStackVpnConfigINSTANCE.Lift(rustCall(func(_uniffiStatus *C.RustCallStatus) unsafe.Pointer {
-		return C.uniffi_el_stack_fn_constructor_elstackvpnconfig_new(FfiConverterStringINSTANCE.Lower(serverHost), FfiConverterStringINSTANCE.Lower(serverServ), FfiConverterStringINSTANCE.Lower(antiOverlap), FfiConverterUint64INSTANCE.Lower(recvTimeout), FfiConverterUint64INSTANCE.Lower(keepaliveInterval), FfiConverterElStackVpnConnectionTypeINSTANCE.Lower(connectionType), _uniffiStatus)
+		return C.uniffi_el_stack_fn_constructor_elstackvpnconfig_new(FfiConverterStringINSTANCE.Lower(serverHost), FfiConverterStringINSTANCE.Lower(serverServ), FfiConverterStringINSTANCE.Lower(antiOverlap), FfiConverterUint64INSTANCE.Lower(recvTimeout), FfiConverterOptionalUint64INSTANCE.Lower(connectionTimeout), FfiConverterUint64INSTANCE.Lower(keepaliveInterval), FfiConverterElStackVpnConnectionTypeINSTANCE.Lower(connectionType), _uniffiStatus)
 	}))
 }
 
@@ -3859,6 +3859,43 @@ func el_stack_cgo_dispatchCallbackInterfaceElStackVpnEventDelegateFree(handle C.
 
 func (c FfiConverterCallbackInterfaceElStackVpnEventDelegate) register() {
 	C.uniffi_el_stack_fn_init_callback_vtable_elstackvpneventdelegate(&UniffiVTableCallbackInterfaceElStackVpnEventDelegateINSTANCE)
+}
+
+type FfiConverterOptionalUint64 struct{}
+
+var FfiConverterOptionalUint64INSTANCE = FfiConverterOptionalUint64{}
+
+func (c FfiConverterOptionalUint64) Lift(rb RustBufferI) *uint64 {
+	return LiftFromRustBuffer[*uint64](c, rb)
+}
+
+func (_ FfiConverterOptionalUint64) Read(reader io.Reader) *uint64 {
+	if readInt8(reader) == 0 {
+		return nil
+	}
+	temp := FfiConverterUint64INSTANCE.Read(reader)
+	return &temp
+}
+
+func (c FfiConverterOptionalUint64) Lower(value *uint64) C.RustBuffer {
+	return LowerIntoRustBuffer[*uint64](c, value)
+}
+
+func (_ FfiConverterOptionalUint64) Write(writer io.Writer, value *uint64) {
+	if value == nil {
+		writeInt8(writer, 0)
+	} else {
+		writeInt8(writer, 1)
+		FfiConverterUint64INSTANCE.Write(writer, *value)
+	}
+}
+
+type FfiDestroyerOptionalUint64 struct{}
+
+func (_ FfiDestroyerOptionalUint64) Destroy(value *uint64) {
+	if value != nil {
+		FfiDestroyerUint64{}.Destroy(*value)
+	}
 }
 
 type FfiConverterOptionalString struct{}
